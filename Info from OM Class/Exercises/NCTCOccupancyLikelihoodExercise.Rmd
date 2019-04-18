@@ -1,0 +1,259 @@
+---
+title: 'Occupancy Modeling Likelihood Exercise'
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r set-options, cache=FALSE, echo=FALSE}
+options(width = 100)
+```
+
+__First load required packages__: If you need to install the packages, you can do so directly in R Studio (Tools --> Install Packages or Packages --> Install), or you can use commands like these in your R Script: install.packages("unmarked"). Once downloaded, you'll need to call the packages you want to use in R using library(packagename) or require(packagename). When you call a package, R automatically calls other packages that are needed.   
+```{r Load required libraries, echo=TRUE, warning=FALSE, message=FALSE}
+library(unmarked)
+library(optimr)
+```
+
+__Now simulate some presence/absence (or rather, detection/non-detection data)__: What we're doing here is simulating occupancy of the species and then "sampling" from the simiulated system.First we specify the number of sites, M, and the number of replicate survey occasions, J.   
+```{r Sites and occasions 1, echo=TRUE}
+M<-250 # Number of sites
+J<-3 # Number of repeat surveys per site
+```
+
+__Now we just pick some values for occupancy and detection parameters (slopes and intercepts).__: alpha = occupancy and beta = detection. Note that these are on the logit scale (more on that later).
+```{r Occupancy and detection parameters 1, echo=TRUE}
+a0<-1 # True occupancy intercept (logit scale)
+b0<-0.5 # True detection intercept (logit scale)
+```
+
+__Now calculate occupancy probabilities (psi), detection probabilities (p), true occurrence (1 or 0) for each of the M simulated sites, and then some simulated data (y).__ 
+```{r Simulate true occupancy 1, echo=TRUE}
+set.seed(1234)
+psi<-plogis(a0) # True occupancy probability
+p<-plogis(b0) # True detection probability
+z<-rbinom(M,1,psi) # True (latent) occurrence (z = 1 is present; z = 0 is absent)
+table(z) # Table of true presence/absence
+y<-array(NA,dim=c(M,J)) # Empty array for survey data
+for (i in 1:M){
+  for (j in 1:J){
+    y[i,j]<-rbinom(1,1,p*z[i]) # Survey data matrix
+    }
+}
+head(y)
+```
+
+__Now fit a single season occupancy model in unmarked.__ 
+```{r Fit a single season occupancy model 1, echo=TRUE}
+occ.umf <- unmarkedFrameOccu(y = y) # No covariates
+occu1<-occu(~1 ~1, data = occ.umf) # Order of formula is ~Detection ~Occupancy
+summary(occu1)
+```
+
+__Now we'll solve it ourselves.__: First we need to write a function for the zero-inflated binomial likelihood (i.e., occupancy model). We're going to use this function in the next step to solve for maximum likelihood estimates, just like unmarked is doing. The goal is to create a function that calculates the model likelihood for a given set of parameter values.
+```{r Write likelihood function 1, echo=TRUE, results=FALSE, echo=TRUE}
+likegeneral1 <- function(par,y,J,Y) {
+  psi <- plogis(par[1]) # Occupancy probability (contstant across sites)
+  p <-   plogis(par[2]) # Detection probability (constant across sites & occasions)
+  l <- rep(NA, nrow(y)) # Empty vector for likelihood of each site's detection history
+  for (i in 1:nrow(y)) { # Loop over sites
+    l[i] <- dbinom(Y[i], J, p)*psi + ifelse(Y[i]==0,1 - psi,0) 
+    # l[i] is the binomial likelihood for each site; if no detections EVER at a site
+    # then add 1-psi; that's the zero-inflation part of the occupancy model likelihood
+    # because we have to account for the fact that at sites where nothing was detected,
+    # we either missed them during surveys or the species simply wasn't there.
+    # Y[i] is the number of detections at each site
+    # J is the number of occasions
+    # psi is the occupancy probability
+    # p is the detection probability
+    # # dbinom is the probability density of the binomial distribution; probability that you get X successes in a series of Bernoulli trials (here the total number of detections at each site, Y[i], and probability of detection, p.
+        }
+  -sum(log(l)) # Negative log likelihood, summed across sites (summed b/c log scale). We want to know the values of par[1] and par[2] that minimize this quantity; our maximum likelihood estimates. Note that it's more convenient to use the negative log-likelihood, but minimizing this quantity is equivalent to maximizing the log likelihood or the likelihood itself. 
+    }
+```
+
+__Now we use the optim function in R to minimize our negative log likelihood function.__:  Optim *minimizes* a function by varying its parameters (for us, the detection and occupancy parameters in our likelihood). The first argument of 'optim' is for the parameters we want to vary, "par" in this case, for which we provide starting values. The second argument is the function to be minimized. Again, here we want to *minimize* the negative log-likelihood (equivalent to maximizing the log likelihood or the likelihood itself). An additional argument in optim,"...", allows for other arguments to be passed to the function you want to minimize, here the simulated data y, the number of survey occasions J, and the total number of detections at each site, Y. 
+```{r Optimize 1, echo=TRUE}
+
+# Finally, look at a table of parameter estimates, standard errors, and 95% CIs from unmarked (unmFIN2) and from optim (optFIN2).
+occmod1<-optimr(par=c(0.5,0.5),likegeneral1,y=y,J=ncol(y),Y=apply(y,1,sum), hessian = TRUE, method = "BFGS") # solve for MLEs
+optest1<-occmod1$par # ML estimates
+optL1<-occmod1$par-1.96*sqrt(diag(solve(occmod1$hessian)))
+optU1<-occmod1$par+1.96*sqrt(diag(solve(occmod1$hessian)))
+optSE1<-sqrt(diag(solve(occmod1$hessian)))  
+unmest1<-coef(occu1)
+unmSE1<-sqrt(diag(vcov(occu1)))
+unmCI1<-rbind(confint(occu1, type = 'state'),confint(occu1, type = 'det')) 
+unmFIN1<-data.frame(unmest1,unmSE1,unmCI1)
+colnames(unmFIN1)<-c("Estimate","SE","Lower95","Upper95")
+optFIN1<-data.frame(optest1,optSE1,optL1,optU1)
+rownames(optFIN1)<-c("psi(Int)","p(Int)")
+colnames(optFIN1)<-c("Estimate","SE","Lower95","Upper95")
+
+unmFIN1 # look at estimates from unmarked
+
+optFIN1 # look at estimates from optim
+```
+
+__Now a slightly more complicated example__: The model above assumed that occupancy and detection probabilities were constant across sites/occasions and treated detection/non-detection data as a summary of the number of successes in N trials (i.e,. Binomial). Below we modify the likelihood slightly by treating each replicate as an independent Bernoulli trial, which accomplishes the exact same thing as above but offers some advantages that we'll get to in the third example. First we specify the number of sites, M, and the number of replicate survey occasions, J.   
+```{r Sites and occasions 2}
+M<-250 # Number of sites
+J<-3 # Number of repeat surveys per site
+```
+
+__Now we just pick some values for occupancy and detection parameters (slopes and intercepts).__: alpha = occupancy and beta = detection. Note that these are on the logit scale (more on that later).
+```{r Occupancy and detection parameters 2}
+a0<-1 # True occupancy intercept
+b0<-0.5 # True detection intercept
+```
+
+__Now calculate occupancy probabilities (psi), detection probabilities (p), true occurrence (1 or 0) for each of the M simulated sites, and then some simulated data (y).__ 
+```{r Simulate true occupancy 2}
+set.seed(1234)
+psi<-plogis(a0) # true occupancy probability
+z<-rbinom(M,1,psi) # True occupancy state (1 or 0)
+table(z) # Table of presences/absences
+y<-array(NA,dim=c(M,J)) # Empty array for p
+p<-array(NA, dim = c(M,J))# Empty array for detection probabilities
+for (i in 1:M){
+  for (j in 1:J){
+    p[i,j]<-plogis(b0) # Detection probability matrix; note p now indexed by [i,j]
+    y[i,j]<-rbinom(1,1,p[i,j]*z[i]) # Survey data matrix
+    }
+}
+head(y) # Look at data
+```
+
+__Now fit a single-season occupancy model in unmarked.__ 
+```{r Fit a single-season occupancy model 2}
+occ.umf2<-unmarkedFrameOccu(y = y)
+occu2<-occu(~1 ~1, data = occ.umf2) # Order of formula is ~Detection ~Occupancy
+summary(occu2) # Look at estimates
+```
+
+__Now we'll solve it ourselves again...__: First we need to write a function for the zero-inflated binomial likelihood (i.e., occupancy model). We're going to use this function in the next step to solve for maximum likelihood estimates, just like unmarked is doing. Notice that this likelihood is a little different from the one above, because now we have to account for the fact that p varied among occasions and psi varied among sites. The goal is the same - create a function that calculates the model likelihood for a given set of parameter values. 
+```{r Write likelihood function 2, echo=TRUE, results=FALSE}
+likegeneral2 <- function(par,y,Y) {
+l <- rep(NA, nrow(y)) 
+for (i in 1:nrow(y)){ 
+       psi[i]<- plogis(par[1])
+    for (j in 1:ncol(y)){
+       p[i,j] <- plogis(par[2])
+       l[i] <- psi[i]*prod((dbinom(y[i,],1,p[i,]))) + ifelse(Y[i]==0,1-psi[i],0) 
+      }
+    }
+-sum(log(l)) # Negative log likelihood, summed across sites
+}
+# dbinom is the probability density of the binomial distribution; probability that you get X successes in a series of Bernoulli trials (here each y[i,j] is a Bernoulli trial with probability of success p).Notice this time that we're taking the product of the binomial probabilities across occasions at each site. This is because p varied among sites and occasions, whereas before we combined the observed data for each site into the total number of detections because the p's were identical across all sites and occasions.
+```
+
+__Again we use the optim function in R to minimize our negative log likelihood function.__:  Optim minimizes a function by varying its parameters (for us, the detection and occupancy parameters in our likelihood). The first argument of 'optim' is for the parameters we want to vary, "par" in this case, for which we provide starting values. The second argument is the function to be minimized. Here, we want to *minimize* the negative log-likelihood (as opposed to maximizing the likelihood). An additional argument in optim,"...", allows for other arguments to be passed to the function you want to minimize, here the simulated data y, the number of survey occasions J, and the total number of detections at each site, Y. 
+```{r Optimize 2, echo=TRUE}
+occmod2<-optimr(par=c(0.5,0.5),likegeneral2,y=y,Y=apply(y,1,sum), hessian = TRUE, method = "BFGS")
+
+# Finally, look at a table of parameter estimates, standard errors, and 95% CIs from unmarked (unmFIN2) and from optim (optFIN2).
+optest2<-occmod2$par # ML estimates
+optL2<-occmod2$par-1.96*sqrt(diag(solve(occmod2$hessian)))
+optU2<-occmod2$par+1.96*sqrt(diag(solve(occmod2$hessian)))
+optSE2<-sqrt(diag(solve(occmod2$hessian)))  
+unmest2<-coef(occu2)
+unmSE2<-sqrt(diag(vcov(occu2)))
+unmCI2<-rbind(confint(occu2, type = 'state'),confint(occu2, type = 'det')) 
+unmFIN2<-data.frame(unmest2,unmSE2,unmCI2)
+colnames(unmFIN2)<-c("Estimate","SE","Lower95","Upper95")
+optFIN2<-data.frame(optest2,optSE2,optL2,optU2)
+rownames(optFIN2)<-c("psi(Int)","p(Int)")
+colnames(optFIN2)<-c("Estimate","SE","Lower95","Upper95")
+```
+
+```{r Compare with above, echo=TRUE}
+unmFIN1 # look at estimates from unmarked1
+unmFIN2 # look at estimates from unmarked2
+optFIN1 # look at estimates from optim1
+optFIN2 # look at estimates from optim2
+```
+
+__Now an even more complicated example__: The model above assumed that occupancy and detection probabilities were constant across sites/occasions. Below is a slightly more realistic model that assumes occupancy varied as a function of a site-level covariate and detection varied as a function of a survey-specific covariates. First we specify the number of sites, M, and the number of replicate survey occasions, J.   
+```{r Sites and occasions 3}
+M<-250 # Number of sites
+J<-3 # Number of repeat surveys per site
+```
+
+__Now we just pick some values for occupancy and detection parameters (slopes and intercepts).__: alpha = occupancy and beta = detection. Note that these are on the logit scale (more on that later).
+```{r Occupancy and detection parameters 3}
+a0<-1 # True occupancy intercept
+a1<-1 # True occupancy slope associated with covariate X1
+b0<-0.5 # True detection intercept
+b1<--1 # True detection slope associated with survey-specific covariate X2
+```
+
+__Now calculate occupancy probabilities (psi), detection probabilities (p), true occurrence (1 or 0) for each of the M simulated sites, and then some simulated data (y).__ 
+```{r Simulate true occupancy 3}
+X1<-runif(M,-1,1) # Empty array for survey-specific covariate X2
+psi<-plogis(a0 + a1*X1) # true occupancy probability
+z<-rbinom(M,1,psi) # True occupancy state (1 or 0)
+table(z) # Table of presences/absences
+y<-array(NA,dim=c(M,J)) # Empty array for p
+X2<-array(NA, dim=c(M,J)) # Empty array for survey-specific covariate X2
+p<-array(NA, dim = c(M,J))# Empty array for detection probabilities
+for (i in 1:M){
+  for (j in 1:J){
+    X2[i,j]<-runif(1,-1,1) # Random draws for covariate X2
+    p[i,j]<-plogis(b0 + b1*X2[i,j]) # Detection probability matrix
+    y[i,j]<-rbinom(1,1,p[i,j]*z[i]) # Survey data matrix
+    }
+}
+head(y) # Look at data
+```
+
+__Now fit a single-season occupancy model in unmarked.__ 
+```{r Fit a single-season occupancy model 3}
+occ.umf3<-unmarkedFrameOccu(y = y, siteCovs = data.frame(X1 = X1), obsCovs = list(X2 = X2))
+occu3<-occu(~X2 ~X1, data = occ.umf3) # Order of formula is ~Detection ~Occupancy
+summary(occu3) # Look at estimates
+```
+
+__Now we'll solve it ourselves again...__: First we need to write a function for the zero-inflated binomial likelihood (i.e., occupancy model). We're going to use this function in the next step to solve for maximum likelihood estimates, just like unmarked is doing. Notice that this likelihood is a little different from the one above, because now we have to account for the fact that p varied among occasions and psi varied among sites. The goal is the same - create a function that calculates the model likelihood for a given set of parameter values. 
+```{r Write likelihood function 3, echo=TRUE, results=FALSE}
+likegeneral3 <- function(par,y,Y,X1,X2) {
+l <- rep(NA, nrow(y)) 
+for (i in 1:nrow(y)){ 
+    psi[i]<- plogis(par[1] + par[2]*X1[i])
+    for (j in 1:ncol(y)){
+       p[i,j] <- plogis(par[3] + par[4]*X2[i,j])
+       l[i] <- psi[i]*prod((dbinom(y[i,],1,p[i,]))) + ifelse(Y[i]==0,1-psi[i],0) 
+      } # dbinom is the probability density of the binomial distribution; probability that you get X successes in a series of Bernoulli trials (here each y[i,j] is a Bernoulli trial with probability of success p).
+    }
+-sum(log(l)) # Negative log likelihood, summed across sites
+}
+# Notice this time that we're taking the product of the binomial probabilities across occasions at each site. This is because p varied among sites and occasions, whereas before we combined the observed data for each site into the total number of detections because the p's were identical across all sites and occasions.
+```
+
+__Now we use the optim function in R to minimize our negative log likelihood function.__:  Optim minimizes a function by varying its parameters (for us, the detection and occupancy parameters in our likelihood). The first argument of 'optim' is for the parameters we want to vary, "par" in this case, for which we provide starting values. The second argument is the function to be minimized. Here, we want to *minimize* the negative log-likelihood (as opposed to maximizing the likelihood). An additional argument in optim,"...", allows for other arguments to be passed to the function you want to minimize, here the simulated data y, the number of survey occasions J, and the total number of detections at each site, Y. 
+```{r Optimize 3, echo=TRUE}
+occmod3<-optimr(par=c(0.5,0.5,0.5,0.5),likegeneral3,y=y,X1=X1,X2=X2,Y=apply(y,1,sum), hessian = TRUE, method = "BFGS")
+
+# Create a table of estimates for each method
+optest3<-occmod3$par # ML estimates
+optL3<-occmod3$par-1.96*sqrt(diag(solve(occmod2$hessian)))
+optU3<-occmod3$par+1.96*sqrt(diag(solve(occmod2$hessian)))
+optSE3<-sqrt(diag(solve(occmod2$hessian)))  
+unmest3<-coef(occu3)
+unmSE3<-sqrt(diag(vcov(occu3)))
+unmCI3<-rbind(confint(occu3, type = 'state'),confint(occu3, type = 'det')) 
+unmFIN3<-data.frame(unmest3,unmSE3,unmCI3)
+colnames(unmFIN3)<-c("Estimate","SE","Lower95","Upper95")
+optFIN3<-data.frame(optest3,optSE3,optL3,optU3)
+rownames(optFIN3)<-c("psi(Int)","psi(X1)","p(Int)","p(X2)")
+colnames(optFIN3)<-c("Estimate","SE","Lower95","Upper95")
+
+unmFIN3 # look at estimates from unmarked
+
+optFIN3 # look at estimates from optim
+```
+
+

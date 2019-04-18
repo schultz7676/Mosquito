@@ -1,0 +1,150 @@
+---
+title: 'Plotting Multi Season Occupancy Modeling Results in R Using ggplot'
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+require("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+opts_knit$set(root.dir = "~/RWD")
+```
+
+```{r set-options, cache=FALSE, echo=FALSE}
+options(width = 100)
+```
+
+###First load required packages###
+__If you need to install the packages, you can do so directly in R Studio (Tools --> Install Packages or Packages --> Install), or you can use commands like these in your R Script: install.packages("unmarked"). Once downloaded, you'll need to call the packages you want to use in R using library(packagename) or require(packagename). When you call a package, R automatically calls other packages that are needed.__   
+```{r}
+library(unmarked) # need this for fitting an occupancy model
+library(ggplot2) # need this for making plots
+library(reshape2) # need this for some data manipulation
+```
+
+###Now import a data set###
+__We'll use the Grand Skinks data for this example.__  
+```{r}
+options(scipen=999) # suppress printing scientific notation
+GrandSkinks<-read.csv("MultiSeasonOccupancy_GrandSkinks.csv",header=TRUE)
+names(GrandSkinks)
+print(head(GrandSkinks),row.names=FALSE)
+```
+
+###Now subset the data frame###
+__Here, we're separating the observation data and site-level covariates, and we also create a Year-specific indicator variable. We also need to re-format the observation data slightly. There are no observation-level covariates here.__
+```{r}
+y<-subset(GrandSkinks, select=c(-Tussock,-Pasture,-HabType)) # subset columns for observation data
+y <- melt(y, id.vars = c("Site", "Time")) # first melt the observation data
+y <- y[with(y, order(Time, Site, variable)),] # then re-order it
+names(y)<- c("Site", "Time", "Occasion", "y") # rename the columns
+yfin <-dcast(y, Site ~ Time + Occasion, value.var = "y") # then transpose the data using dcast
+head(yfin)
+
+max(GrandSkinks$Site) # figure out how many sites there are (we would know this already)
+sitecovs<-subset(GrandSkinks[1:338,], select=c(Tussock, Pasture, HabType)) # subset columns for site-level covariates. There are 338 sites, so we only need the first 338 rows of GrandSkinks
+head(sitecovs)
+
+Year <- matrix(c('01','02','03','04','05'),nrow(yfin),5,byrow=TRUE) # Create Year covariate
+head(Year)
+```
+
+###Now we can create an unmarkedMultFrame for a multi season occupancy model.###
+```{r}
+SkinkDat<-unmarkedMultFrame(y = yfin[,2:16],numPrimary=5, siteCovs=sitecovs,yearlySiteCovs = list(Year=Year))
+head(SkinkDat@y)
+```
+
+###And now fit a multiseason occupancy model in unmarked.###
+```{r}
+(SkinkMod<-colext(psiformula=~HabType,gammaformula=~Year+HabType,epsilonformula=~Year+HabType,pformula=~Year,data=SkinkDat))
+```
+
+###To make predictions from the model, we'll first create a "fake" data set and predict local extinction, colonization, and detection as a function of various site- and year-specific covariates.###
+__Note the use of expand.grid(), which is a handy function for creating data sets.__ 
+```{r}
+newdata<-expand.grid(Year=c('01','02','03','04'),HabType=c("Pasture", "Tussock"))
+print(newdata)
+```
+
+###Now we're ready to make predictions and plots for local extinction, local colonization, and detection.###
+__Note that we have to specify "col", "ext", or "det" when we want to make predictions for colonization, extinction, and detection, respectively. Also, we can use "se.fit = T" (although I think predict does this automatically for unmarked objects) to calculated SEs 95% CIs for each prediction, and we can use "appendData = T" to append the fake data to the data frame produced by predict; this is handy for plotting purposes as you'll see below.__
+```{r}
+Pred.Ext<-predict(SkinkMod,type='ext',newdata=newdata, se.fit = T, appendData = T)
+
+(ExtPlot<-ggplot(Pred.Ext, aes(Year,Predicted, color = Year)) + geom_errorbar(aes(ymin = lower, ymax = upper), width=0.2, size = 2) + geom_point(aes(fill = Year),colour = "black", shape = 21, size = 4) + facet_grid(.~HabType) + labs(title="Grand Skink Local Extinction Probability",x="Year",y="Local extinction probability") + ylim(0,0.5) + theme_bw(base_size = 16) + theme(plot.title = element_text(hjust = 0.5)) + theme(panel.grid.major.x = element_blank()) + theme(panel.grid.minor.x = element_blank()) + theme(panel.grid.minor.y = element_blank()) + theme(legend.position = "none"))
+ggsave("ExtPlot.jpg", ExtPlot, height=8,width=12,dpi=600)
+```
+
+###Now local colonization###
+```{r}
+Pred.Col<-predict(SkinkMod,type='col',newdata=newdata, se.fit = T, appendData = T)
+
+(ColPlot<-ggplot(Pred.Col, aes(Year,Predicted, color = Year)) + geom_errorbar(aes(ymin = lower, ymax = upper), width=0.2, size = 2) + geom_point(aes(fill = Year),colour = "black", shape = 21, size = 4) + facet_grid(.~HabType) + labs(title="Grand Skink Local Colonization Probability",x="Year",y="Local colonization probability") + ylim(0,0.3) + theme_bw(base_size = 16) + theme(plot.title = element_text(hjust = 0.5)) + theme(panel.grid.major.x = element_blank()) + theme(panel.grid.minor.x = element_blank()) + theme(panel.grid.minor.y = element_blank()) + theme(legend.position = "none"))
+ggsave("ColPlot.jpg", ColPlot, height=8,width=12,dpi=600)
+```
+
+###And finally detection###
+```{r}
+newdata2<-expand.grid(Year=c('01','02','03','04','05'))
+Pred.Det<-predict(SkinkMod,type='det',newdata=newdata2, se.fit = T, appendData = T)
+(DetPlot<-ggplot(Pred.Det, aes(Year,Predicted)) + geom_point(size=4) + geom_errorbar(aes(ymin = lower, ymax = upper), width=0.2, size = 2) + labs(title="Grand Skink Detection Probability", x="Year",y="Per-occasion detection probability") + ylim(0.5,1.0) + theme_bw(base_size = 16) + theme(plot.title = element_text(hjust = 0.5)) + theme(panel.grid.major.x = element_blank()) + theme(panel.grid.minor.x = element_blank()) + theme(panel.grid.minor.y = element_blank()) + theme(legend.position = "none"))
+ggsave("DetPlot.jpg",DetPlot, height=8, width=12, dpi=600)
+```
+
+###Now we'll make another plot, only this time for the number of occupied sites in each year, which is a derived parameter.###
+__This is a little bit complicated, and there may very well be a simpler way to do this, but in any event the code below calculates the number of occupied sites in each year along with 95% confidence intervals, and then it creates a plot.__  
+```{r}
+sitesOccupiedSim <- function(psi.c, nsim) {
+  M <- length(psi.c)           
+  sims <- matrix(NA, M, nsim)
+  post <- rep(0, M+1)
+  names(post) <- 0:M
+  for(i in 1:nsim) {
+    sims[,i] <- rbinom(M,1,psi.c)
+  }
+  s <- colSums(sims)
+  sf <- table(s)
+  post[names(sf)]<- sf
+  post <- post/nsim
+  return(post)
+}
+psi.c <- bup(ranef(SkinkMod))
+psi.c1<-psi.c[,1]
+psi.c2<-psi.c[,2]
+psi.c3<-psi.c[,3]
+psi.c4<-psi.c[,4]
+psi.c5<-psi.c[,5]
+
+occ1<-sitesOccupiedSim(psi.c1,10000)
+occ2<-sitesOccupiedSim(psi.c2,10000)
+occ3<-sitesOccupiedSim(psi.c3,10000)
+occ4<-sitesOccupiedSim(psi.c4,10000)
+occ5<-sitesOccupiedSim(psi.c5,10000)
+
+q1<-cumsum(occ1)
+OccSites1 <- c(Year=1, Est. = as.integer(names(which.max(occ1))),
+               lowerCI = as.integer(names(q1)[max(which(q1 < 0.025))]),
+               upperCI = as.integer(names(q1)[min(which(q1 > 0.975))]))
+q2<-cumsum(occ2)
+OccSites2 <- c(Year=2, Est. = as.integer(names(which.max(occ2))),
+               lowerCI = as.integer(names(q2)[max(which(q2 < 0.025))]),
+               upperCI = as.integer(names(q2)[min(which(q2 > 0.975))]))
+q3<-cumsum(occ3)
+OccSites3 <- c(Year=3, Est. = as.integer(names(which.max(occ3))),
+               lowerCI = as.integer(names(q3)[max(which(q3 < 0.025))]),
+               upperCI = as.integer(names(q3)[min(which(q3 > 0.975))]))
+q4<-cumsum(occ4)
+OccSites4 <- c(Year=4,Est. = as.integer(names(which.max(occ4))),
+               lowerCI = as.integer(names(q4)[max(which(q4 < 0.025))]),
+               upperCI = as.integer(names(q4)[min(which(q4 > 0.975))]))
+q5<-cumsum(occ5)
+OccSites5 <- c(Year=5,Est. = as.integer(names(which.max(occ5))),
+               lowerCI = as.integer(names(q5)[max(which(q5 < 0.025))]),
+               upperCI = as.integer(names(q5)[min(which(q5 > 0.975))]))
+
+OccupiedSites<-as.data.frame(rbind(OccSites1,OccSites2,OccSites3,OccSites4,OccSites5))
+
+(OccPlot<-ggplot(OccupiedSites,aes(Year,Est.)) + geom_errorbar(aes(ymin = lowerCI, ymax = upperCI), width=0.2, size = 2) + geom_point(colour = "black", shape = 20, size = 8) + labs(title="Number of Occupied Sites",x="Year",y="Number of occupied sites") + ylim(120,170) + theme_bw(base_size = 16) + theme(plot.title = element_text(hjust = 0.5)) + theme(panel.grid.major.x = element_blank()) + theme(panel.grid.minor.x = element_blank()) + theme(panel.grid.minor.y = element_blank()) + theme(legend.position = "none"))
+ggsave("OccupiedSitesPlot.jpg", OccPlot, height=8,width=12,dpi=600)
+```

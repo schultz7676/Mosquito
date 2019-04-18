@@ -1,0 +1,136 @@
+---
+title: 'Plotting Single Season Occupancy Modeling Results in R Using ggplot'
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+require("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+opts_knit$set(root.dir = "~/RWD")
+```
+
+```{r set-options, cache=FALSE, echo=FALSE}
+options(width = 100)
+```
+
+###First load required packages###
+__If you need to install the packages, you can do so directly in R Studio (Tools --> Install Packages or Packages --> Install), or you can use commands like these in your R Script: install.packages("unmarked"). Once downloaded, you'll need to call the packages you want to use in R using library(packagename) or require(packagename). When you call a package, R automatically calls other packages that are needed.__   
+```{r}
+library(unmarked) # need this for fitting an occupancy model
+library(ggplot2) # need this for making plots
+library(dplyr) # need this for data manipulation
+library(tidyr) # need this for data manipulation
+```
+
+###Now import a data set###
+__We'll use the *Medionidus walkeri* data for this example.__  
+```{r}
+options(scipen=999) # suppress printing scientific notation
+walkeri<-read.csv("SingleSeasonOccupancy_Mwalkeri.csv")
+```
+
+###Now subset the data frame###
+__Here, we're separating the observation data, observation-level covariates, and site-level covariates.__
+```{r}
+###############################
+### Medionidus walkeri data ###
+############################### 
+head(walkeri) # take a look at the first few rows of the data
+walkeriObs<-walkeri[,17:24] # subset columns for observation data
+walkeriObsCovs<-walkeri[,c(1,25:40)] # subset columns for observation-level covariates
+walkeriSiteCovs<-walkeri[,1:16] # subset columns for site-level covariates
+```
+
+###We need to re-format the observation-level covariates for unmarked.
+__There are many ways to do this, but we'll use reshape2 to melt the data (convert Effort and stEffort from wide to long format), reorder, and then combine them.__
+```{r}
+Effort<-walkeriObsCovs[,1:9]
+stEffort<-walkeriObsCovs[,c(1,10:17)]
+Effort2 <- melt(Effort, id.vars = "Site")
+Effort2 <- Effort2[with(Effort2, order(Site, variable)),]
+stEffort2 <- melt(stEffort, id.vars = "Site")
+stEffort2 <- stEffort2[with(stEffort2, order(Site, variable)),]
+EffortFin2 <- data.frame(Site = Effort2[,1], Effort = Effort2[,3], stEffort = stEffort2[,3])
+print(EffortFin2[1:24,])
+```
+
+###Just FYI, we can do the same thing using dplyr and tidyr's gather (melt) and arrange (order) functions.###
+```{r}
+Effort3 <- Effort %>% gather(variable, value, -Site) %>% arrange(Site, variable)
+stEffort3 <- stEffort %>% gather(variable, value, -Site) %>% arrange(Site, variable)
+EffortFin3 <- data.frame(Site = Effort3$Site, Occasion = Effort3$variable, Effort = Effort3$value, stEffort = stEffort3$value)
+print(EffortFin3[1:24,])
+```
+
+###Now we can create an unmarkedFrame for a single season occupancy model.###
+```{r}
+walkeri.umf <- unmarkedFrameOccu(y = walkeriObs, siteCovs = walkeriSiteCovs, obsCovs = EffortFin3)
+```
+
+###And now fit an occupancy model in unmarked.###
+```{r}
+(walk_mod1 <- occu(~stEffort ~ stSpringQcms + I(stSpringQcms^2), walkeri.umf))
+```
+
+###To make predictions from the model, we'll first create a "fake" data set and predict occupancy for various levels of the SpringQcms covariate.###
+__Note that the model was fitted using the standardized SpringQcms covariate, so we have to supply predict with covariate values on that scale to make predictions; however, when we plot it's usually preferable to plot occupancy as a function of the non-standardized (raw) value of the covariate, so we have to back-transform the "fake" observations by multiplying the standardized value by the SD of SpringQcms and adding the mean of SpringQcms (i.e,. we're undoing the standardization).__
+```{r}
+(stQrange<-range(walkeri.umf@siteCovs$stSpringQcms))
+(Qrange<-range(walkeri.umf@siteCovs$SpringQcms))
+(Qmean<-mean(walkeri.umf@siteCovs$SpringQcms))
+(QSD<-sd(walkeri.umf@siteCovs$SpringQcms))
+newdat1<-data.frame(stSpringQcms = seq(stQrange[1],stQrange[2], length.out = 50))
+newdat1$SpringQcms<-newdat1$stSpringQcms*QSD + Qmean # back-transform the standardized covariate
+print(newdat1[1:50,])
+```
+
+###Now we're ready to make predictions###
+__Note that we have to specify "state" when we want to make occupancy predictions. Also, we can use "se.fit = T" to calculated SEs 95% CIs for each prediction, and we can use "appendData = T" to append the fake data to the data frame produced by predict; this is handy for plotting purposes as you'll see below.__
+```{r}
+walkPredOcc<-predict(walk_mod1, type = 'state', newdata = newdat1, se.fit = T, appendData=T)
+print(walkPredOcc)
+```
+
+###Now we're ready to make a plot using ggplot.###
+```{r}
+(OccPlot <- ggplot(walkPredOcc, aes(x = SpringQcms, y = Predicted)) + geom_line(colour = "black", size = 1) + geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3, colour = "black", show.legend = F) + xlab("Spring discharge (cms)") + ylab("M. walkeri occupancy probability") + scale_x_continuous(limits = c(0, 75), breaks = c(0,15,30,45,60,75)) + scale_y_continuous(limits = c(0, 1), breaks = c(0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0)) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + ggtitle("Occupancy of Medionidus walkeri") + theme(plot.title = element_text(hjust = 0.5)))
+```
+
+###Note that you can also save the plot that's produced in a variety of formats using the ggsave function.###
+__The plot will be saved to your working directory.__  
+```{r}
+ggsave("OccPlot.jpg", OccPlot, width = 4, height = 5, dpi = 600)
+```
+
+###Now we'll make another plot, only this time for detection probability.###
+__To do so, however, we need to modify the stEffort and Effort data frames a little bit. First we'll create a new data frame called walkeriObsind based on the observation (detection/non-detection) data, and within that data frame we convert all 0 observations to 1. This is because there are a lot of NAs in the observation data (i.e., occasions that never occurred), and we need to account for the NAs to properly calculate the mean and sd of effort. Note that Unmarked ignores covariate values (here, Effort and stEffort) associated with missing observations (NA). We then "melt" the Effort and stEffort data frames and calculate the mean and SD of Effort. Recall that we included stEffort as a covariate, so to make a nice plot we want to predict detection based on stEffort but plot as a function of Effort (similar to above with SpringQcms).__  
+```{r}
+walkeriObsind<-walkeriObs # make new data frame
+walkeriObsind[walkeriObsind == 0] <- 1 # convert "0" observations to "1".  
+stEffCor<-stEffort[,2:9]*walkeriObsind # multiply observations (all 1) x stEffort, which retaints the NAs, too.
+EffCor<-Effort[,2:9]*walkeriObsind # multiply observations x Effort (retains NAs)
+EffCor<-melt(EffCor) # Melt the EffCor data frame into long format
+stEffCor<-melt(stEffCor) # Melt the stEffCor data frame into a long format
+(Effmean<-mean(EffCor$value, na.rm = T)) # mean of Effort = 0.3825831
+(EffSD<-sd(EffCor$value, na.rm = T))   # SD of Effort = 0.1709319
+(mean(stEffCor$value, na.rm = T)) # should be 0
+(sd(stEffCor$value, na.rm = T)) # should be 1
+(RangeStEff<-range(stEffCor$value, na.rm = T)) # -2.039310  6.537206
+newdat2<-data.frame(stEffort = seq(RangeStEff[1],RangeStEff[2], length.out = 50))
+newdat2$Effort<-newdat2$stEffort*EffSD + Effmean
+print(newdat2[1:24,])
+```
+
+###Now we're read to make detection predictions and plot them as a function of effort.###
+```{r}
+walkPredDet<-predict(walk_mod1, type = 'det', newdata = newdat2, se.fit = T, appendData=T)
+print(walkPredDet)
+
+(DetPlot <- ggplot(walkPredDet, aes(x = Effort, y = Predicted)) + geom_line(colour = "black", size = 1) + geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3, colour = "black", show.legend = F) + xlab("Effort (hours)") + ylab("Per-occasion M. walkeri dectecion probability") + scale_x_continuous(limits = c(0, 1.5), breaks = c(0,0.25, 0.50, 0.75, 1.0, 1.25, 1.5)) + scale_y_continuous(limits = c(0, 1), breaks = c(0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0)) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +  ggtitle("Detection of Medionidus walkeri") + theme(plot.title = element_text(hjust = 0.5)))
+```
+
+###And again we can save this in any format we like using ggsave().###
+```{r}
+ggsave("DetPlot.jpg", DetPlot, width = 4, height = 5, dpi = 600)
+```

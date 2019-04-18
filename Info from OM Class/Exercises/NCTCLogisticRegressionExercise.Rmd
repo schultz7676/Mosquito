@@ -1,0 +1,126 @@
+---
+title: 'Logistic Regression Exercise'
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+require("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+opts_knit$set(root.dir = "~/RWD")
+```
+
+```{r set-options, cache=FALSE, echo=FALSE}
+options(width = 100)
+```
+
+__First load required packages__: If you need to install the packages, you can do so directly in R Studio (Tools --> Install Packages or Packages --> Install), or you can use commands like these in your R Script: install.packages("unmarked"). Once downloaded, you'll need to call the packages you want to use in R using library(packagename) or require(packagename). When you call a package, R automatically calls other packages that are needed.   
+```{r Load required libraries, echo=TRUE, warning=FALSE, message=FALSE}
+library(unmarked)
+```
+
+__Now simulate some presence/absence (or rather, detection/non-detection data)__: What we're doing here is simulating occupancy of the species and then "sampling" from the simiulated system.First we specify the number of sites, M, and the number of replicate survey occasions, J.   
+```{r Sites and occasions}
+M<-500 # Number of sites
+J<-3 # Number of repeat surveys per site
+```
+
+__Now we just pick some values for occupancy and detection parameters (slopes and intercepts).__: alpha = occupancy and beta = detection. Note that these are on the logit scale (more on that later).
+```{r Occupancy and detection parameters}
+alpha0<-0.25 # True occupancy intercept
+alpha1<-2 # True occupancy slope for site level covariate
+beta0<-0.25 # True detection intercept 
+beta1<-0.5 # True detection slope for site-level covariate 
+beta2<--0.50 # True detection slope for survey-specific covariate
+```
+
+__Now we're going to create a site-level covariate, X1, that influences occupancy__: We then calculate occupancy probabilities (psi) and true occurrence (1 or 0) for each of the M simulated sites. 
+```{r Simulate true occupancy}
+X1<-runif(M,-1,1) # Occupancy covariate, ranges from -1 to 1 (standardized)
+psi<-plogis(alpha0 + alpha1*X1) # True occupancy probability
+z<-rbinom(M,1,psi) # True (latent) occurrence (z = 1 is present; z = 0 is absent)
+table(z)
+```
+
+__Now create 3 empty matrices that we'll use in the next steps.__
+```{r Create empty arrays}
+y<-array(NA,dim=c(M,J))
+X2<-array(NA, dim=c(M,J)) # Detection covariate matrix
+p<-array(NA, dim = c(M,J)) # Detection probability matrix
+```
+
+__Now we "sample" each site__: note that our ability to observe the species is corrupted by incomplete detection of the species during sampling (p at each site).
+```{r Sample}
+for (i in 1:M){
+  for (j in 1:J){
+    X2[i,j]<-runif(1,-1,1)
+    p[i,j]<-plogis(beta0 + beta1*X1[i] + beta2*X2[i,j])
+    y[i,j]<-rbinom(1,1,p[i,j]*z[i]) # Survey data matrix
+    }
+}
+head(y)
+```
+
+__Now extract sample data (y) for each occasion.__
+```{r Extract sample data for each occasion}
+firsty<-y[,1]  # extract first occasion's data
+secondy<-y[,2] # second occasion's data
+thirdy<-y[,3]  # third occasion's data
+maxy<-apply(y,1,max) # max across all survey occasions for each site (i.e., was it ever detected)
+```
+
+__Then create a new data frame for making predictions later.__
+```{r Create new data frame}
+newX1<-data.frame(X1=seq(-1,1, length.out = 250))
+```
+
+__Now fit a logistic regression model to each occasion's data.__
+```{r Fit logistic regressions to each occasions data}
+
+# Fit model to occasion 1's data, then make predictions from the model
+summary(first<-glm(firsty~ X1, family = binomial))
+predfirst<-predict(first,type = "response", newdata = newX1)
+predfirst<-cbind(predfirst,newX1)
+
+# Fit model to occasion 2's data, then make predictions from the model
+summary(second<-glm(secondy~ X1, family = binomial))
+predsecond<-predict(second,type = "response", newdata = newX1)
+predsecond<-cbind(predsecond,newX1)
+
+# Fit model to occasion 3's data, then make predictions from the model
+summary(third<-glm(thirdy~ X1, family = binomial))
+predthird<-predict(third,type = "response", newdata = newX1)
+predthird<-cbind(predthird,newX1)
+```
+
+__Now plot predicted occupancy from each of the three logistic regression models.__
+```{r Plot predictions}
+plot(X1, maxy, xlab = "X1", ylab = "Probability of Occurrence", frame = F, cex = 1.5) # Plot raw data
+lines(predfirst$X1, predfirst$predfirst, col = "red", type = "l", lwd = 2)
+lines(predsecond$X1, predsecond$predsecond, col = "green", type = "l", lwd = 2)
+lines(predthird$X1, predthird$predthird, col = "orange", type = "l", lwd = 2)
+legend(-1, 0.95, c("First","Second","Third"), lty = c(1, 1, 
+    1, 1), lwd = c(2.5,2.5,2.5,2.5,2.5,2.5), col = c("red", "green", "orange"))
+```
+
+
+__Now fit an occupancy model in unmarked__: This time we are formally acounting for incomplete detection of the species during sampling.
+```{r Fit an occupancy model}
+occ.umf <- unmarkedFrameOccu(y = y, siteCovs = data.frame(X1 = X1), obsCovs = list(X2 = X2))
+occ1<-occu(~X1 + X2 ~X1, data = occ.umf)
+summary(occ1)
+predocc<-predict(occ1,type = "state", newdata = newX1)
+predocc<-cbind(predocc,newX1)
+```
+
+__Now plot and compare the predicted relationships based on each model__: This time we are including the true occupancy relationship along with predictions from the three logistic regression models and the occupancy model.Notice how far off the predictions are from truth based on the logistic regression models. This is typical as they tend to underestimate occupancy and covariate effects are pushed closer and closer to zero. 
+```{r New plot with occupancy}
+plot(X1, maxy, xlab = "X1", ylab = "Probability of Occurrence", frame = F, cex = 1.5)
+plot(function(X1) plogis(alpha0 + alpha1*X1), -1, 1, add = T, lwd = 2, col = "black")
+lines(predfirst$X1, predfirst$predfirst, col = "red", type = "l", lwd = 2)
+lines(predsecond$X1, predsecond$predsecond, col = "green", type = "l", lwd = 2)
+lines(predthird$X1, predthird$predthird, col = "orange", type = "l", lwd = 2)
+lines(predocc$X1, predocc$Predicted, col = "blue", type = "l", lwd = 2)
+legend(-1, 0.95, c("Truth", "Occupancy Model", "First","Second","Third"), lty = c(1, 1, 
+    1, 1), lwd = c(2.5,2.5,2.5,2.5,2.5,2.5), col = c("black", "blue", "red", "green", "orange"))
+```
