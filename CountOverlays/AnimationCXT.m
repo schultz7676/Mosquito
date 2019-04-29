@@ -37,6 +37,26 @@ TrapSites = removevars(TrapSites,{'description'});
 
 clear opts
 
+%% Import Salton Sea Boundary
+opts = delimitedTextImportOptions("NumVariables", 3);
+
+% Specify range and delimiter
+opts.DataLines = [2, Inf];
+opts.Delimiter = ",";
+
+% Specify column names and types
+opts.VariableNames = ["Lon", "Lat", "Count"];
+opts.VariableTypes = ["double", "double", "double"];
+opts = setvaropts(opts, 4, "WhitespaceRule", "preserve");
+opts = setvaropts(opts, 4, "EmptyFieldRule", "auto");
+opts.ExtraColumnsRule = "ignore";
+opts.EmptyLineRule = "read";
+
+% Import the data
+bound = readtable("\\stuhome.psu.ds.pdx.edu\j\jocole\My Documents\MATLAB\saltonseaboundary.csv", opts);
+
+clear opts
+
 %% Setup Interpolation Area
 % Coachella Valley Boundaries
 minlon = -116.166666667;
@@ -47,7 +67,7 @@ maxlat =   33.566666667;
 R = georefcells([minlat maxlat],[minlon maxlon],[1000 1000],'ColumnsStartFrom','north');
 
 % Create an anonymous 2D interpolation function 'mygriddata'
-mygriddata = @(x,y,c){griddata(x,y,c,XQ,YQ)};
+mygriddata = @(x,y,c){griddata([x;bound.Lon],[y;bound.Lat],[c;bound.Count],XQ,YQ)};
 
 %% Interpolate Groups by Date
 Traps = join(TrapCounts,TrapSites);
@@ -55,7 +75,7 @@ Times = findgroups(Traps.YR,Traps.WK);
 % Feed lon, lat, and counts to the x,y,c placeholders in 'mygriddata'
 AbundanceFrames = splitapply(mygriddata,Traps.Lon,Traps.Lat,Traps.CXT,Times);
 AbundanceFrames = cat(3, AbundanceFrames{:});
-%AbundanceFrames(isnan(AbundanceFrames)) = 0;
+AbundanceFrames(isnan(AbundanceFrames)) = 0;
 AbundanceFrames = uint8(AbundanceFrames./max(AbundanceFrames(:)).*63);
 
 %% Create Video and Overlays
@@ -66,6 +86,9 @@ open(v);
 % Create a set of frames and write each frame to the file.
 figure
 cmap = colormap('parula');
+TiffTags = struct('ExtraSamples', Tiff.ExtraSamples.AssociatedAlpha,
+                  'Photometric', Tiff.Photometric.RGB, ...
+                  'Compression', Tiff.Compression.None);
 for k = 1:size(AbundanceFrames,3)
    ind = Times==k;
    selection = Traps.WK(ind);
@@ -85,6 +108,9 @@ for k = 1:size(AbundanceFrames,3)
    
    % Save the overlay
    filename = ['CXTCounts_',num2str(year),num2str(week,'%02d'),'.tif'];
-   geotiffwrite(filename,flipud(AbundanceFrames(:,:,k)),cmap,R)
+   Image_RGB = ind2rgb(flipud(AbundanceFrames(:,:,k)),cmap);
+   alphamap = flipud(AbundanceFrames(:,:,k)) == 0;
+   Image_RGB_4 = cat(3, Image_RGB, uint8(alpha_map * 255));  % M-by-N-by-4 matrix with alpha data
+   geotiffwrite2(filename, Image_RGB_4, R, 'TiffTags', TiffTags);
 end
 close(v);
