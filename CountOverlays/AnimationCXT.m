@@ -47,8 +47,6 @@ opts.Delimiter = ",";
 % Specify column names and types
 opts.VariableNames = ["Lon", "Lat", "Count"];
 opts.VariableTypes = ["double", "double", "double"];
-opts = setvaropts(opts, 4, "WhitespaceRule", "preserve");
-opts = setvaropts(opts, 4, "EmptyFieldRule", "auto");
 opts.ExtraColumnsRule = "ignore";
 opts.EmptyLineRule = "read";
 
@@ -86,7 +84,7 @@ open(v);
 % Create a set of frames and write each frame to the file.
 figure
 cmap = colormap('parula');
-TiffTags = struct('ExtraSamples', Tiff.ExtraSamples.AssociatedAlpha,
+TiffTags = struct('ExtraSamples', Tiff.ExtraSamples.AssociatedAlpha,...
                   'Photometric', Tiff.Photometric.RGB, ...
                   'Compression', Tiff.Compression.None);
 for k = 1:size(AbundanceFrames,3)
@@ -109,7 +107,7 @@ for k = 1:size(AbundanceFrames,3)
    % Save the overlay
    filename = ['CXTCounts_',num2str(year),num2str(week,'%02d'),'.tif'];
    Image_RGB = ind2rgb(flipud(AbundanceFrames(:,:,k)),cmap);
-   Image_RGB = insertText(Image_RGB,[750,950],txt,'FontSize',14,'TextColor','white')
+   Image_RGB = insertText(Image_RGB,[750,950],txt,'FontSize',14,'TextColor','white');
    alphamap = flipud(AbundanceFrames(:,:,k)) == 0;
    Image_RGB_4 = cat(3, Image_RGB, uint8(alpha_map * 255));  % M-by-N-by-4 matrix with alpha data
    geotiffwrite2(filename, Image_RGB_4, R, 'TiffTags', TiffTags);
