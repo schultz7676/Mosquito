@@ -1,0 +1,330 @@
+Tutorial on fitting the generalized N-mixture models in R
+
+David Dail, April 2010
+
+This tutorial demonstrates the closure test and population dynamics and abundance
+estimation using the generalized N-mixture models as described by Dail and Madsen,
+Biometrics, 2010. It largely follows the form of the tutorial provided by J.A. Royle
+for fitting the original N-mixture model, given in the supplemental appendix of 
+Kery, Royle, Schmid, Modeling avian abundance from replicated counts using binomial
+mixture models, Ecological Applications, 2005.
+
+This tutorial assumes the reader has some familiarity with R.
+
+The "nmix.mig" takes a while to run, so the time required for finding MLEs will be 
+reduced by working on a 64 bit computer (though this is not required).
+
+A command intended to be entered as R code into the R console is depicted by the 
+">", with commentary between the commands describing the closure test or model 
+selection using the generalized model.
+
+First, load the R file gen.nmix.R into an active R session, using the command
+
+> source("<pathway>/gen.nmix.R")
+
+where <pathway> is the complete path name of the directory containing the file
+gen.nmix.R. There are 3 files contained in this archive, verified using the command:
+
+> ls()
+
+The data file "mallard.data" is the data file provided by Kery, Royle and Schmid 
+(2005). It consists of Mallard point counts at 239 sites, each of which is sampled
+up to 3 times, along with an assortment of possible covariates.
+
+The other two files are R functions. The function "nmix.mig" fits the generalized 
+model to data, finding the MLEs of the parameters. The function "ests" provides 
+the estimated total abundance (with asymptotic standard error) during each primary
+period in the study.
+
+These functions require the logit and reverse-logit transform, which are built by 
+the following commands:
+
+> expit = function(x) { return((exp(x))/(1+exp(x))) }
+> logit = function(x) { return(log(x/(1-x))) }
+
+
+A couple preliminaries are required to fit the nmix.mig model to these data. First,
+the covariate matrices for lambda and p be built (X and Z respectively), according
+to the generalized linear models log(lambda) = XB and logit(p) = ZV, where B and V
+are vectors of parameters.
+
+> data=mallard.data
+> elev<-data[,"elev"]
+> length<-data[,"length"]
+> forest<-data[,"forest"]
+> n.it<-data[,c("count1","count2","count3")]
+> R<-nrow(n.it)
+> T<-ncol(n.it)
+> DATE<-data[,c("date1","date2","date3")]
+> IVEL<-data[,c("ivel1","ivel2","ivel3")]
+> DATE2<-DATE^2
+
+
+To fit the best model found in Kery, Royle, and Schmid (2005), we need the X and Z 
+to have the form of X.lam and Z.p below:
+
+> X.const = rep(1,R)
+> X.lam = cbind(X.const,elev,forest)
+
+> p.date.lin = as.vector(t(DATE))
+> Z.const = rep(1,R*T)
+> Z.p = cbind(Z.const,p.date.lin)
+
+
+The "sampling date" matrix giving the sampling dates associated with each survey 
+must be constructed. Since the DATE covariate has been centered and standardized
+in the "mallard.data" data set, the centering and standardizing values are needed
+to obtained the raw sampling dates via back-transformation. The sampling design 
+information provided by the authors is that the first sample occurred on date 1 and
+the last sample occurred near date 90, with each sampling date a whole number. 
+Therefore, the "sampling date" matrix is constructed using the following commands:  
+
+> DATE.vec = c(DATE[,1],DATE[,2],DATE[,3])
+> stds = sort(na.exclude(unique(DATE.vec)))
+> diffs = numeric(length(stds)-1)
+> for(i in 1:(length(stds)-1)){ diffs[i] = stds[i+1] - stds[i] }
+
+> diffs.days = round(diffs/min(diffs))
+> day.unique = numeric(length(diffs.days)+1)
+
+> day.unique[1]=1
+> for(i in 1:(length(diffs.days))){ day.unique[i+1] = day.unique[i] + diffs.days[i] }
+> day.unique = c(day.unique,NA)
+> DATE.mat = cbind(DATE.vec,seq(1:length(DATE.vec)))
+> DATE.sort = DATE.mat[order(DATE.mat[,1]),]
+> dup = duplicated(DATE.sort[,1])
+
+> j=1
+> for(i in 1:length(DATE.vec)){
+>  if(dup[i]==TRUE) DATE.sort[i,1]=DATE.sort[i-1,1]
+>  if(dup[i]!=TRUE) { 
+>    DATE.sort[i,1]= day.unique[j]
+>    j=j+1
+>  }
+> }
+
+> DATE.mat2 = DATE.sort[order(DATE.sort[,2]),]
+> DATE.2 = matrix(DATE.mat2,nrow=239,ncol=3,byrow=FALSE)
+
+DATE.2 is a matrix with the sampling date of every survey given for each site 
+(1 is April 1 in this case).
+
+Next, we need to construct a "date" matrix that provides the primary period number 
+associated with each sample, under the alternative hypothesis of the population 
+being open. For instance, given a length of primary period under the alternative 
+hypothesis, if some site was not sampled during the first primary period, was 
+sampled twice in the 2nd primary period and then once in the 3rd primary period, 
+we would want the "date" record at that site to be [ 2  3  3 ].
+
+The closure test depends on the length of the primary period chosen as the 
+alternative to "the entire study duration". We will test the closure assumption 
+here using the alternative duration of primary period length chosen as 30 days.
+
+> DATE.3 = ceiling(DATE.2/30)
+
+
+The function "nmix.mig" uses the date matrix, DATE.3, to construct the matrix of 
+J.it values related to the number of samples obtained at each site during each
+primary period, as well as the matrix of "Delta.it" values giving the length of
+time (in primary periods) between sampling occasions at each site.
+
+The optimization routine optim() will be used to find the MLEs of each model. The 
+search method can be specified:
+
+> Method = "BFGS"
+
+More information related to optim() can be found by issuing the command
+
+> help(optim)
+
+The cut-off value K that will be used to approximate the infinite summations in 
+both the original N-mixture model and the generalized model can also be specified:
+
+> K.lim = 40
+
+Note that while a cut-off value of 200 was used in the Dail and Madsen (2010) paper, 
+using K=40 instead gives approximately the same answers and will require less 
+computing time.
+
+A list of the required inputs for "nmix.mig" is given below, along with a brief 
+description:
+
+"vars" is a vector giving the parameter values. In general, this order is (lambda, 
+   p, gamma, omega, over-dispersion), but "lambda" and/or "p" will be more than 
+   one value if more than an intercept is included in X and/or Z; gamma and omega 
+   are required only when the migration form requires them (i.e., when migration=
+   "constant"); and the over-dispersion parameter is only required when using the
+   negative binomial prior (i.e., prior="NB"). 
+"n" is a matrix of the observed counts
+"X" is a matrix of covariate values related to lambda       
+"Z" is a matrix of covariate values related to p
+"migration" is one of the following: "none" (for the original N-mixture model), 
+  "constant", "autoreg", "reshuf" for the different population dynamics models 
+  described by Dail and Madsen (2010)
+"prior" is either "poisson" or "NB", and is the prior for initial abundance at 
+  each site
+"Date" is a matrix of dates recording the primary period during which each 
+  observation was obtained 
+"K" is the cutoff value for the infinite summation in obtaining the marginal 
+  likelihood.
+
+
+The original N-mixture model with the negative binomial prior and no covariates
+(ie, the null model) is fit with the following command:
+
+> model.null = optim(c(0,0,0), nmix.mig, method=Method, hessian=TRUE, n=n.it,
+ X=X.const, Z=Z.const, migration="none", prior="NB", Date=DATE.3, K=K.lim)
+
+
+The (0,0,0) in the above command gives the starting values in the search for the 
+MLEs. The nmix.mig functions take a bit of computing time to find the MLEs, and it
+is always a good idea to verify that the optim() procedure actually converged.
+
+> model.null$conv
+
+This will return "0" if the optim() is satisfied that it found the maximum of the 
+likelihood (actually, optim() finds the minimum of the negative log likelihood).   
+
+Furthermore, the stability of the MLEs can be checked by calculating the condition
+number, which is the ratio of the largest eigenvalue of the hessian matrix to the 
+smallest eigenvalue:
+
+> ev.null = eigen(model.null$hessian)$values
+> cn.null = max(ev.null)/min(ev.null)
+> cn.null #the condition number
+
+Values of the condition number near 0 or negative indicate a problem, possibly 
+indicating fitting a model with too many parameters for the given data set.
+
+The MLEs are obtained by the command:
+
+> model.null$par
+
+Because of a transformation that makes optim() run more smoothly, this gives the 
+MLE for log(lambda), logit(p), and log(dispersion parameter) with the dispersion
+parameter the overdispersion parameter of the negative binomial prior. The 
+back-transformed MLEs for lambda and p can be obtained by the following commands:
+
+> lambda.est = exp(model.null$par[1])
+> p.est = expit(model.null$par[2])
+> c(lambda.est, p.est)
+ 
+The asymptotic standard errors of the parameter estimates are calculated with the 
+Hessian matrix, and can be found with the following command:
+
+> se = sqrt(diag(solve(model.null$hess)))
+> se #the standard errors
+
+As mentioned earlier, optim() is minimizing the negative log likelihood (nll). The 
+minimum value of the nll can be retrieved by the command
+
+> nll = model.null$val
+
+With this, the AIC score for the null model can be calculated:
+
+> aic = nll + 2*length(model.null$par)
+
+
+
+In fitting the N-mixture model with covariates for lambda and p, the MLEs from the 
+null model are used as initial values.
+
+> model.closed = optim(c(model.null$par[1],0,0,model.null$par[2],0,model.null$par[3]),
+ nmix.mig, method=Method, hessian=TRUE, n=n.it, X=X.lam, Z=Z.p, migration="none",
+ prior="NB",Date=DATE.3,K=K.lim)
+
+> model.closed$conv
+> ev.closed = eigen(model.closed$hessian)$values
+> cn.closed = max(ev.closed)/min(ev.closed)
+> cn.closed #check condition number
+
+The number of 0's inserted in the starting value vector is determined by the number
+of covariates in the X and Z matrix for lambda and p (2 and 1, respectively, in 
+this case)
+
+
+Finally, the generalized model can be fit. We use the MLEs from the closed model as 
+the starting point in the search for the generalized model MLEs: 
+
+> model.open = optim(c(model.closed$par[1:5],-2,2,model.closed$par[6]), nmix.mig, 
+ method=Method, hessian=TRUE, n=n.it, X=X.lam, Z=Z.p, migration="constant", 
+ prior="NB", Date=DATE.3, K=K.lim)
+
+> model.open$conv
+> ev.open = eigen(model.open$hessian)$values
+> cn.open = max(ev.open)/min(ev.open)
+> cn.open #check condition number: this condition number is much larger than the others
+
+
+The p-value from the closure test can then be obtained by using the following 
+commands:
+
+> t.stat= 2*(model.closed$val - model.open$val)
+> obs.inf = -1*model.open$hess
+> obs.inf.nn = obs.inf[1:5,1:5]
+> obs.inf.np = obs.inf[1:5,6:7]
+> obs.inf.pn = obs.inf[6:7,1:5]
+> obs.inf.pp = obs.inf[6:7,6:7]
+> I.tilda = obs.inf.pp - obs.inf.pn%*%solve(obs.inf.nn)%*%obs.inf.np
+> prop = acos(I.tilda[1,2]/(sqrt(I.tilda[1,1]*I.tilda[2,2])))/(2*pi)
+> prop.0 = 0.5 - prop
+> prop.1 = 0.5
+> prop.2 = prop
+> p.value = prop.0*(0) + prop.1*(1-pchisq(t.stat,1)) + prop.2*(1-pchisq(t.stat,2))
+> p.value
+
+
+Even though this p-value is high enough (0.29) that there is no evidence against
+the population closure hypothesis, we will get total abundance estimates (and 
+asymptotic standard errors) for every primary period using both the open and the
+closed models, as well as 95% confidence intervals for the population dynamics
+parameters.
+
+The first part is done using the "ests" function. The value for "T" that must be 
+supplied indicates the duration of the study, in terms of the total number of 
+primary periods. 
+
+> ests.closed = ests(model.closed$par,model.closed$hess, migration="none", n=n.it,
+ X=X.lam, Z=Z.p, T=3, prior="NB")
+> ests.closed
+
+> ests.open = ests(model.open$par, model.open$hess, migration="constant", n=n.it, 
+ X=X.lam, Z=Z.p, T=3, prior="NB")
+> ests.open
+
+The first T (3 in this case) values are the estimated total abundance, and the
+next T values are the asymptotic standard errors associated with each estimate, 
+respectively.
+
+Again, a back-transformation is required to retrieve the parameter estimates
+from either the open or closed models with covariates. With covariates, each 
+of the 239 sites has a different "lambda" value, and each (site, sampling 
+occasion) combination can have a different detection probability (as in this
+case). The mean of estimated lambda values and the mean of the estimated detection
+probabilities are the next two values given as output in the ests function.
+
+The last two values given as the output with the "ests" function are the 
+back-transformed estimates of gamma and omega, the parameters controlling the 
+population dynamics. 
+
+> gamma = ests.open[9]
+> gamma
+> omega = ests.open[10]
+> omega
+
+Asymptotic standard errors of the dynamic parameter estimates (before 
+back-transformation) can be obtained using the following commands:
+
+> se = sqrt(diag(solve(model.open$hess)))
+> se.gamma = se[6]
+> se.omega = se[7]
+
+Asymptotic 95% confidence intervals for gamma and omega can then be computed:
+
+> gamma.ci = exp( c( model.open$par[6]- 1.96*se.gamma , model.open$par[6] +
+   1.96*se.gamma))
+> gamma.ci
+> omega.ci = expit( c( model.open$par[7] - 1.96*se.omega, model.open$par[7] +
+   1.96*se.omega))
+> omega.ci
+
