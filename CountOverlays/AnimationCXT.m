@@ -68,13 +68,36 @@ R = georefcells([minlat maxlat],[minlon maxlon],[1000 1000],'ColumnsStartFrom','
 mygriddata = @(x,y,c){griddata([x;bound.Lon],[y;bound.Lat],[c;bound.Count],XQ,YQ)};
 
 %% Interpolate Groups by Date
+% Setup the map coloring edges (uniformly spaced quantiles of the ecdf)
+len_cmap = 64;
+all_counts = TrapCounts.CXT;
+sorted_counts = sort(all_counts);
+ii = find(sorted_counts>0);
+nonzero_sorted_counts = sorted_counts(ii(1):end);
+min_color = nonzero_sorted_counts(1);
+max_color = nonzero_sorted_counts(end);
+[F,x] = ecdf(nonzero_sorted_counts);
+quantiles = discretize(F,len_cmap);
+quantile_derivitive = quantiles(2:end)-quantiles(1:end-1);
+edges = unique([x(find(quantile_derivitive));max(nonzero_sorted_counts)]); %#ok<FNDSB>
+
+% Setup the alpha gradient
+alpha_max = 0.85;
+alpha_min = 0.35;
+alpha_step = (alpha_max-alpha_min)/(len_cmap-1);
+alpha_vec = alpha_min:alpha_step:alpha_max;
+
+% Find the groups of data for each frame
 Traps = join(TrapCounts,TrapSites);
 Times = findgroups(Traps.YR,Traps.WK);
+
 % Feed lon, lat, and counts to the x,y,c placeholders in 'mygriddata'
 AbundanceFrames = splitapply(mygriddata,Traps.Lon,Traps.Lat,Traps.CXT,Times);
 AbundanceFrames = cat(3, AbundanceFrames{:});
-AbundanceFrames(isnan(AbundanceFrames)) = 0;
-AbundanceFrames = uint8(AbundanceFrames./max(AbundanceFrames(:)).*63);
+AbundanceFrames = discretize(AbundanceFrames,edges);
+null_counts = isnan(AbundanceFrames);
+AbundanceFrames(null_counts) = 0;
+AbundanceFrames = uint8(AbundanceFrames./max(AbundanceFrames(:)).*(len_cmap-1));
 
 %% Create Video and Overlays
 months = {'Jan.','Feb.','Mar.','Apr.','May ','Jun.','Jul.','Aug.','Sep.','Oct.','Nov.','Dec.'};
@@ -108,7 +131,9 @@ for k = 1:size(AbundanceFrames,3)
    filename = ['CXTCounts_',num2str(year),num2str(week,'%02d'),'.tif'];
    Image_RGB = ind2rgb(flipud(AbundanceFrames(:,:,k)),cmap);
    Image_RGB = insertText(Image_RGB,[750,900],txt,'FontSize',36,'TextColor','white');
-   alpha_map = flipud(AbundanceFrames(:,:,k)) ~= 0;
+   alpha_map = alpha_vec(AbundanceFrames(:,:,k)+1);
+   alpha_map(null_counts(:,:,k)) = 0;
+   alpha_map = flipud(alpha_map);
    Image_RGB_4 = cat(3, Image_RGB, alpha_map);  % M-by-N-by-4 matrix with alpha data
    Image_RGB_4 = uint8(255.*Image_RGB_4);
    geotiffwrite2(filename, Image_RGB_4, R, 'TiffTags', TiffTags);
