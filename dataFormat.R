@@ -1,3 +1,9 @@
+# To Do:
+#   Add on site locations
+#   Add NOAA Weather data
+#   Add Habitat proportions
+
+
 #Import data [Note: Use data set that includes the "T" column!] ####
 mosDat <- read_excel("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/mosDat.xlsx", 
                      col_types = c("numeric","numeric", "numeric", "numeric", 
@@ -18,7 +24,7 @@ for(i in c(1:64)){
 
 m #max number of revisits is 33
 
-#Reformat data####
+#Reformat time + count data####
 
 #First build empty data frame to contain the counts and times
 num.traps<-64
@@ -43,6 +49,10 @@ for (i in c(1:num.traps)){
 }
 dat_ready
 
+#Add site locations####
+library(readr)
+TrapSites <- read_csv("TrapSites.csv")
 
-# Write CSV in R
+
+# Write to CSV using R####
 write.csv(dat_ready, file = "D:\\Desktop\\dat_ready.csv",row.names=FALSE, na="")
