@@ -1,4 +1,4 @@
-function geotiffwrite(varargin)
+function geotiffwrite2(varargin)
 %GEOTIFFWRITE Write GeoTIFF file
 %
 %   GEOTIFFWRITE(FILENAME, A, R) writes a georeferenced image or data grid,
@@ -226,7 +226,6 @@ function geotiffwrite(varargin)
 % Copyright 2010-2014 The MathWorks, Inc.
 
 % Verify the number of inputs.
-display('You are using a custom geotiffwrite function');
 narginchk(3,inf);
 
 % Parse the inputs.
