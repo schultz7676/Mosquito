@@ -13,6 +13,29 @@ mosDat <- read_excel("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consul
                                    "numeric", "numeric", "numeric", 
                                    "numeric", "numeric"))
 
+# Dealing with Temperatures####
+library(readxl)
+NOAAsubset <- read_excel("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/Data/NOAAsubset.xlsx")
+dim(NOAAsubset)
+#View(NOAAsubset)
+
+#first find the two week averages, which is based on the time period "T"
+temps<-aggregate(NOAAsubset[, 2:3], list(NOAAsubset$T), mean, na.rm=TRUE)
+temps
+
+#rename the time column to match the notation in mosDat
+colnames(temps)[colnames(temps)=="Group.1"] <- "T"
+temps
+
+temps.mosDat<- data.frame(matrix(ncol = 2, nrow = length(mosDat$T)))
+colnames(temps.mosDat) <- c("TMAX", "TOBS")
+for (i in c(1:length(mosDat$T))){
+  temps.mosDat[i,]<-temps[which(temps$T==mosDat$T[i]),c(2,3)]
+}
+
+#These are the temperatures for each observation.
+#This is meant to be added onto mosDat
+temps.mosDat
 
 #Max number of revisits?####
 m=0
@@ -56,3 +79,4 @@ TrapSites <- read_csv("TrapSites.csv")
 
 # Write to CSV using R####
 write.csv(dat_ready, file = "D:\\Desktop\\dat_ready.csv",row.names=FALSE, na="")
+
