@@ -1,11 +1,12 @@
 # To Do:
-#   Add on site locations
 #   Add NOAA Weather data
-#   Add Habitat proportions
 
 
 #Import data [Note: Use data set that includes the "T" column!] ####
-mosDat <- read_excel("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/mosDat.xlsx", 
+library("readxl")
+file_in_joe = "mosDat.xlsx"
+file_in_jac = "C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/mosDat.xlsx"
+mosDat <- read_excel(file_in_joe, 
                      col_types = c("numeric","numeric", "numeric", "numeric", 
                                    "numeric", "numeric", "numeric", 
                                    "numeric", "numeric", "numeric", 
@@ -38,7 +39,7 @@ dat_ready[,1]<-c(1:num.traps)
 dat_ready
 
 
-#Loop formats same as mallard.data
+# Loop formats same as mallard.data
 for (i in c(1:num.traps)){
   d<-mosDat[mosDat$TRAP_NUM == i,c(1:6)] #Grab all data assoc with trap i
   t<-d$T
@@ -49,10 +50,28 @@ for (i in c(1:num.traps)){
 }
 dat_ready
 
-#Add site locations####
+# Add site locations
 library(readr)
 TrapSites <- read_csv("TrapSites.csv")
+dat_ready <- merge(TrapSites,dat_ready,all=TRUE,by.x="Name",by.y="trap_num")
+colnames(dat_ready)[colnames(dat_ready)=="Name"] <- "trap_num"
+colnames(dat_ready)[colnames(dat_ready)=="X"] <- "lon"
+colnames(dat_ready)[colnames(dat_ready)=="Y"] <- "lat"
+dat_ready$description <- NULL
 
+# Add habitat data
+habitats <- read_excel("Habitats from Hugh L.xls")
+habitats$X__1 <- NULL
+habitats$X__2 <- NULL
+habitats <- habitats[-c(63:72),]
+habitats[63,] <- list("0064",156.46,0,0,0,0,0,0,0,0,156.46)
+habitats$TRAP_NUM <- as.numeric(habitats$TRAP_NUM)
+dat_ready <- merge(habitats,dat_ready,all=TRUE,by.x="TRAP_NUM",by.y="trap_num")
+colnames(dat_ready)[colnames(dat_ready)=="TRAP_NUM"] <- "trap_num"
+
+# Add NOAA temperature data
 
 # Write to CSV using R####
-write.csv(dat_ready, file = "D:\\Desktop\\dat_ready.csv",row.names=FALSE, na="")
+file_out_joe = "dat_ready.csv"
+file_out_jac = "D:\\Desktop\\dat_ready.csv"
+write.csv(dat_ready, file = file_out_joe,row.names=FALSE, na="")
