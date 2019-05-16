@@ -1,6 +1,6 @@
-source("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/Git/Mosquito/From Madsen/gen.nmix.R")
+source("./From Madsen/gen.nmix.R")
 library(readr)
-dat_ready__5_9_2019 <- read_csv("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/dat_ready__5_9_2019.csv")
+dat_ready__5_9_2019 <- read_csv("./dat_ready__5_9_2019.csv")
 ls()
 #Need to define these functions first
 expit = function(x) { return((exp(x))/(1+exp(x))) }
