@@ -7,10 +7,16 @@ expit = function(x) { return((exp(x))/(1+exp(x))) }
 logit = function(x) { return(log(x/(1-x))) }
 
 data=dat_ready__5_9_2019
+View(data)
+data=data[-28,] #eliminates the empty row
+#Subset
+#timespan of study: # of weeks to include in the dataset
+#First year: T in [1,14], Second year: T in [24:33]
 
+tspan <- 14
 
 #counts
-n.it<-data[,paste(rep("y",33), c(1:33), sep="")]
+n.it<-data[,paste(rep("y",tspan), c(1:tspan), sep="")]
 R<-nrow(n.it)
 T<-ncol(n.it)
 
@@ -21,11 +27,10 @@ total<-data[,"TOTAL"]
 #how to deal with habitat..?
 
 #observation-level predictors
-temp.obs<-data[,paste(rep("temp.obs",33),c(1:33),sep="")]
-temp.max<-data[,paste(rep("temp.max",33),c(1:33),sep="")]
-DATE<-data[,paste(rep("t",33),c(1:33),sep="")]
+temp.obs<-data[,paste(rep("temp.obs",tspan),c(1:tspan),sep="")]
+temp.max<-data[,paste(rep("temp.max",tspan),c(1:tspan),sep="")]
+DATE<-data[,paste(rep("t",tspan),c(1:tspan),sep="")]
 DATE2<-DATE^2
-
 
 #model: Kery, Royle, and Schmid (2005)####
 X.const = rep(1,R) 
@@ -42,18 +47,20 @@ DATE.2 = DATE
 
 #Now set the assumed primary period length. Our data is only sampled
 #every two weeks, so this should probably be small
-pim.period.length <- 11
+pim.period.length <- 1
 DATE.3 = ceiling(DATE.2/pim.period.length)
 DATE.3
 
 #Optimization
 #from toutorial: "original N-mixture model with the negative binomial prior and no covariates (ie, the null model) 
 #Note:had to use as.matrix(n.it) because it was reading n.it as a list
-Method = "BFGS"
-K.lim = 50
-start.vals = c(.1,.1,.1) #also tried 0,0,0. Both times converged on initial values 
-model.null = optim(start.vals, nmix.mig, method=Method, hessian=TRUE, n=as.matrix(n.it),
-                   X=X.const, Z=Z.const, migration="none", prior="NB", Date=DATE.3, K=K.lim)
+Method = "SANN"
+K.lim = 100
+start.vals = c(.5,0) 
+#Testing Likelihood
+nmix.mig(start.vals,ceiling(as.matrix(n.it)/100),X.const,Z.const,Date=DATE.3,K=K.lim)
+
+model.null = optim(start.vals, nmix.mig, method=Method, hessian=TRUE, n=as.matrix(n.it), X=X.const, Z=Z.const, migration="none", prior="poisson", Date=DATE.3, K=K.lim,control=list(trace=2,reltol=1e-2,ndeps=c(50,.05)))
 
 model.null$conv #should come back "0" if we found max
 
