@@ -1,19 +1,26 @@
-source("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/Git/Mosquito/From Madsen/gen.nmix.R")
+source("./From Madsen/gen.nmix.R")
 library(readr)
-dat_ready__5_9_2019 <- read_csv("C:/Users/Jacob/Dropbox/Grad School/2018-2019/Spring/Consulting Class/dat_ready__5_9_2019.csv")
-ls()
+library("unmarked")
+library("tictoc") #So we can see our code's run time
+
+dat_ready__5_9_2019 <- read_csv("./dat_ready__5_9_2019.csv")
+
 #Need to define these functions first
 expit = function(x) { return((exp(x))/(1+exp(x))) }
 logit = function(x) { return(log(x/(1-x))) }
 
 data=dat_ready__5_9_2019
+<<<<<<< HEAD
 View(data)
 data=data[-28,] #eliminates the empty row
 #Subset
 #timespan of study: # of weeks to include in the dataset
 #First year: T in [1,14], Second year: T in [24:33]
+=======
+data = data[-28,]
+>>>>>>> 37701953bb18cf3909195030fd58459392cbe4f4
 
-tspan <- 14
+tspan <- 33
 
 #counts
 n.it<-data[,paste(rep("y",tspan), c(1:tspan), sep="")]
@@ -33,12 +40,11 @@ DATE<-data[,paste(rep("t",tspan),c(1:tspan),sep="")]
 DATE2<-DATE^2
 
 #model: Kery, Royle, and Schmid (2005)####
-X.const = rep(1,R) 
-X.lam = cbind(X.const,lon,lat,total)
+X = cbind(lon,lat,total)
 
 p.date.lin = as.vector(t(DATE))
-Z.const = rep(1,R*T)
-Z.p = cbind(Z.const,p.date.lin)
+tobs.lin = as.vector(t(as.matrix(temp.obs)))
+Z = cbind(tobs.lin,p.date.lin)
 
 #Note: we got to skip a lot of code here because our data
 #is not centered and standardized
@@ -49,11 +55,14 @@ DATE.2 = DATE
 #every two weeks, so this should probably be small
 pim.period.length <- 1
 DATE.3 = ceiling(DATE.2/pim.period.length)
-DATE.3
+DATE.4 = as.matrix(DATE.3)
+DATE.4[is.na(DATE.4)] = max(as.vector(DATE.3),na.rm=TRUE) 
+mode(DATE.4) = "integer"
 
 #Optimization
 #from toutorial: "original N-mixture model with the negative binomial prior and no covariates (ie, the null model) 
 #Note:had to use as.matrix(n.it) because it was reading n.it as a list
+<<<<<<< HEAD
 Method = "SANN"
 K.lim = 100
 start.vals = c(.5,0) 
@@ -63,48 +72,91 @@ nmix.mig(start.vals,ceiling(as.matrix(n.it)/100),X.const,Z.const,Date=DATE.3,K=K
 model.null = optim(start.vals, nmix.mig, method=Method, hessian=TRUE, n=as.matrix(n.it), X=X.const, Z=Z.const, migration="none", prior="poisson", Date=DATE.3, K=K.lim,control=list(trace=2,reltol=1e-2,ndeps=c(50,.05)))
 
 model.null$conv #should come back "0" if we found max
+=======
+Method = "BFGS"
+K.lim = 200
+start.vals = c(0,0)
+y = unmarkedFramePCount(ceiling(as.matrix(n.it)/100),
+						siteCovs=NULL,
+						obsCovs=NULL,
+						mapInfo=NULL)
+model.null = pcount(~1~1,
+					y,
+					K.lim,
+					mixture="P",
+					start.vals,
+					method=Method,
+					se=TRUE,
+					engine="C")
+
+summary(model.null)
+>>>>>>> 37701953bb18cf3909195030fd58459392cbe4f4
 
 #Evaluate the stability
-ev.null = eigen(model.null$hessian)$values
-ev.null
+ev.null = eigen(model.null@opt$hessian)$values
 cn.null = max(ev.null)/min(ev.null)
-cn.null #the condition number
+cn.null #the condition number. Should not be negative or close to 0.
 
-model.null$par #this gives the MLE for log(lambda), logit(p), and log(dispersion parameter alpha)
-lambda.est = exp(model.null$par[1])
-p.est = expit(model.null$par[2])
-c(lambda.est, p.est)
-
-se = sqrt(diag(solve(model.null$hess)))
-se #the standard errors
-
-nll = model.null$val
-aic = nll + 2*length(model.null$par)
 
 #In fitting the N-mixture model with covariates for lambda and p, the MLEs from the 
 #null model are used as initial values.
+y = unmarkedFramePCount(ceiling(as.matrix(n.it)/100),
+						siteCovs=as.data.frame(X),
+						obsCovs=as.data.frame(Z),
+						mapInfo=NULL)
+model.closed = pcount(~1 ~1,
+					  y,
+					  K.lim,
+					  mixture="P",
+					  model.null@opt$par,
+					  method=Method,
+					  se=TRUE,
+					  engine="C")
 
-model.closed = optim(c(model.null$par[1],0,0,model.null$par[2],0,model.null$par[3]),
-                     nmix.mig, method=Method, hessian=TRUE, n=as.matrix(n.it), X=X.lam, Z=Z.p, migration="none",
-                     prior="NB",Date=DATE.3,K=K.lim)
-model.closed$conv
-ev.closed = eigen(model.closed$hessian)$values
+summary(model.closed)
+
+ev.closed = eigen(model.closed@opt$hessian)$values
 cn.closed = max(ev.closed)/min(ev.closed)
 cn.closed #check condition number
 
 
-#Open Model ####
-model.open = optim(c(model.closed$par[1:5],-2,2,model.closed$par[6]), nmix.mig, 
-                   method=Method, hessian=TRUE, n=as.matrix(n.it), X=X.lam, Z=Z.p, migration="constant", 
-                   prior="NB", Date=DATE.3, K=K.lim)
+#Open Model #### This takes a long time to run, but it does seem to converge.
+y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
+					 siteCovs=as.data.frame(X),
+					 obsCovs=as.data.frame(Z),
+					 yearlySiteCovs=NULL,
+					 mapInfo=NULL,
+					 numPrimary=33,
+					 primaryPeriod=DATE.4)
+tic()
+model.open = pcountOpen(~1,~1,~1,~1,
+						y,
+						mixture="P",
+						K.lim,
+						dynamics="constant",
+						fix="none",
+						starts=c(model.closed@opt$par[1],0,0,model.closed@opt$par[2]),
+						method=Method,
+						se=TRUE,
+						immigration=FALSE,
+						iotaformula=~1)
+toc() #714.39 sec on Jacob's machine (12 mins)
 
-model.open$conv
-ev.open = eigen(model.open$hessian)$values
+summary(model.open)
+
+lam <- exp(coef(model.open, type="lambda"))
+gam <- exp(coef(model.open, type="gamma"))
+om <- plogis(coef(model.open, type="omega"))
+p <- plogis(coef(model.open, type="det"))
+c(lam,gam,om,p) #back transformed fitted values
+
+ev.open = eigen(model.open@opt$hessian)$values
 cn.open = max(ev.open)/min(ev.open)
 cn.open #check condition number: this condition number is much larger than the others
 
 
 #Closure Test
+if(FALSE){
 t.stat= 2*(model.closed$val - model.open$val)
 obs.inf = -1*model.open$hess
 obs.inf.nn = obs.inf[1:5,1:5]
@@ -139,3 +191,4 @@ gamma.ci = exp( c( model.open$par[6]- 1.96*se.gamma , model.open$par[6] +1.96*se
 gamma.ci
 omega.ci = expit( c( model.open$par[7] - 1.96*se.omega, model.open$par[7] + 1.96*se.omega))
 omega.ci
+}
