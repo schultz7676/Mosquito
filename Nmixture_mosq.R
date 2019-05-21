@@ -1,6 +1,8 @@
 source("./From Madsen/gen.nmix.R")
 library(readr)
 library("unmarked")
+library("tictoc") #So we can see our code's run time
+
 dat_ready__5_9_2019 <- read_csv("./dat_ready__5_9_2019.csv")
 
 #Need to define these functions first
@@ -8,11 +10,20 @@ expit = function(x) { return((exp(x))/(1+exp(x))) }
 logit = function(x) { return(log(x/(1-x))) }
 
 data=dat_ready__5_9_2019
+<<<<<<< HEAD
+View(data)
+data=data[-28,] #eliminates the empty row
+#Subset
+#timespan of study: # of weeks to include in the dataset
+#First year: T in [1,14], Second year: T in [24:33]
+=======
 data = data[-28,]
+>>>>>>> 37701953bb18cf3909195030fd58459392cbe4f4
 
+tspan <- 33
 
 #counts
-n.it<-data[,paste(rep("y",33), c(1:33), sep="")]
+n.it<-data[,paste(rep("y",tspan), c(1:tspan), sep="")]
 R<-nrow(n.it)
 T<-ncol(n.it)
 
@@ -23,11 +34,10 @@ total<-data[,"TOTAL"]
 #how to deal with habitat..?
 
 #observation-level predictors
-temp.obs<-data[,paste(rep("temp.obs",33),c(1:33),sep="")]
-temp.max<-data[,paste(rep("temp.max",33),c(1:33),sep="")]
-DATE<-data[,paste(rep("t",33),c(1:33),sep="")]
+temp.obs<-data[,paste(rep("temp.obs",tspan),c(1:tspan),sep="")]
+temp.max<-data[,paste(rep("temp.max",tspan),c(1:tspan),sep="")]
+DATE<-data[,paste(rep("t",tspan),c(1:tspan),sep="")]
 DATE2<-DATE^2
-
 
 #model: Kery, Royle, and Schmid (2005)####
 X = cbind(lon,lat,total)
@@ -52,6 +62,17 @@ mode(DATE.4) = "integer"
 #Optimization
 #from toutorial: "original N-mixture model with the negative binomial prior and no covariates (ie, the null model) 
 #Note:had to use as.matrix(n.it) because it was reading n.it as a list
+<<<<<<< HEAD
+Method = "SANN"
+K.lim = 100
+start.vals = c(.5,0) 
+#Testing Likelihood
+nmix.mig(start.vals,ceiling(as.matrix(n.it)/100),X.const,Z.const,Date=DATE.3,K=K.lim)
+
+model.null = optim(start.vals, nmix.mig, method=Method, hessian=TRUE, n=as.matrix(n.it), X=X.const, Z=Z.const, migration="none", prior="poisson", Date=DATE.3, K=K.lim,control=list(trace=2,reltol=1e-2,ndeps=c(50,.05)))
+
+model.null$conv #should come back "0" if we found max
+=======
 Method = "BFGS"
 K.lim = 200
 start.vals = c(0,0)
@@ -69,11 +90,12 @@ model.null = pcount(~1~1,
 					engine="C")
 
 summary(model.null)
+>>>>>>> 37701953bb18cf3909195030fd58459392cbe4f4
 
 #Evaluate the stability
 ev.null = eigen(model.null@opt$hessian)$values
 cn.null = max(ev.null)/min(ev.null)
-cn.null #the condition number
+cn.null #the condition number. Should not be negative or close to 0.
 
 
 #In fitting the N-mixture model with covariates for lambda and p, the MLEs from the 
@@ -106,6 +128,7 @@ y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
 					 mapInfo=NULL,
 					 numPrimary=33,
 					 primaryPeriod=DATE.4)
+tic()
 model.open = pcountOpen(~1,~1,~1,~1,
 						y,
 						mixture="P",
@@ -117,8 +140,15 @@ model.open = pcountOpen(~1,~1,~1,~1,
 						se=TRUE,
 						immigration=FALSE,
 						iotaformula=~1)
+toc() #714.39 sec on Jacob's machine (12 mins)
 
 summary(model.open)
+
+lam <- exp(coef(model.open, type="lambda"))
+gam <- exp(coef(model.open, type="gamma"))
+om <- plogis(coef(model.open, type="omega"))
+p <- plogis(coef(model.open, type="det"))
+c(lam,gam,om,p) #back transformed fitted values
 
 ev.open = eigen(model.open@opt$hessian)$values
 cn.open = max(ev.open)/min(ev.open)
