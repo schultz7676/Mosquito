@@ -1,0 +1,4 @@
+CulexTarsalis.jpg	https://bugguide.net/node/view/83951/bgpage
+WestNileIncidence2018.PNG	https://wwwn.cdc.gov/arbonet/Maps/ADB_Diseases_Map/index.html
+Ecology-Light-Trap-CDC.jpg	https://www.maine.gov/dhhs/mecdc//infectious-disease/epi/vector-borne/mosquito/mosquito-ecology-and-testing.shtml
+CDCTrap.PNG	https://oeps.wv.gov/arboviral/documents/mosquito/lhd/Mosquito-Surveillance-Plan_Appendix1.pdf
