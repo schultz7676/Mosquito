@@ -1,6 +1,7 @@
 library("readxl")
 library("fBasics")
 library("dplyr")
+#setwd("C:/Users/Joe/Documents/PSU/Mosquito")
 
 # Read the data from Microsoft Excel file, clean up extraneous data
 filename = "C:/Users/Joe/Documents/PSU/Mosquito/9495co2t.xlsx"
@@ -34,10 +35,70 @@ CL = function(dat,alpha=0.05) {
 	ucl = cent - sd(dat)/sqrt(ndat)*qt(alpha/2,df)
 	return(paste(sprintf("%.2f",lcl),"-",sprintf("%.2f",ucl),sep=""))
 }
-
+tochr = function(x){return(sprintf("%02d",x))}
+truncstr = function(x){return(substring(x,3))}
+date_to_T = function(x) {
+	d = as.Date(as.character(x), format="%Y%m%d")
+	week = as.integer(format(d,"%U"))
+	year = format(d,"%Y")
+	ii = (year == "1995")
+	week[ii] = week[ii] + 52
+	samp = ceiling((week-16)/2) + 1
+	return(samp)
+}
+yrwk_to_T = function(y,w) {
+	d = as.Date(paste(y,w,0,sep=""), format="%Y%U%w")
+	return(date_to_T(format(d,"%Y%m%d")))
+}
+dist_to_sea = function(lat,lon,bound) {
+	lat1 = lat*pi/180
+	lon1 = lon*pi/180
+	lat2 = bound$Lat*pi/180
+	lon2 = bound$Lon*pi/180
+	delta_lat = lat2-lat1
+	delta_lon = lon2-lon1
+	a = sin(delta_lat/2)^2 + cos(lat1)*cos(lat2)*sin(delta_lon/2)^2
+    c = 2*atan2(sqrt(a),sqrt(1-a))	
+	dists = 6371 * c # in km
+	return(min(dists))
+}
 
 # Add column of grand total counts including all species
 cxt = cxt %>% mutate(All_Species = select(.,CXT:CSINC) %>% rowSums(na.rm=TRUE))
+
+# Add site locations
+library(readr)
+TrapSites = read_csv("TrapSites.csv")
+TrapSites$description <- NULL
+colnames(TrapSites)[colnames(TrapSites)=="X"] <- "LON"
+colnames(TrapSites)[colnames(TrapSites)=="Y"] <- "LAT"
+TrapSites = TrapSites %>% mutate(Name = tochr(Name))
+cxt = cxt %>% inner_join(TrapSites,by=c("TRAP_NUM" = "Name"))
+
+# Add habitat data
+habitats = read_excel("Habitats from Hugh L.xls")
+habitats$X__1 <- NULL
+habitats$X__2 <- NULL
+habitats <- habitats[-c(63:72),]
+habitats[63,] <- list("0064",156.46,0,0,0,0,0,0,0,0,156.46)
+habitats = habitats %>% mutate(TRAP_NUM = truncstr(TRAP_NUM))
+cxt = cxt %>% inner_join(habitats,by="TRAP_NUM")
+
+# Add temperature data
+noaa = read_csv("NOAA weather data 1994 1995 Mecca FS.csv",n_max=727)
+noaa = noaa %>% select(DATE,TMAX,TOBS)
+noaa = noaa %>% mutate(T = date_to_T(DATE))
+noaaavg = noaa %>%
+          select(T,TMAX,TOBS) %>%
+		  group_by(T) %>%
+		  summarize("TMAX" = mean(TMAX,na.rm=TRUE),
+					"TOBS" = mean(TOBS,na.rm=TRUE))
+cxt = cxt %>% mutate(T = yrwk_to_T(YR,WK))
+cxt = cxt %>% inner_join(noaaavg,by="T")
+
+# Add distance to Salton Sea
+seabound = read_csv("CountOverlays/saltonseaboundary.csv")
+cxt = cxt %>% rowwise() %>% mutate(DIST_TO_SEA = dist_to_sea(LAT,LON,seabound))
 
 # Add column of transformed data
 cxt = cxt %>% mutate(TransCXT = YTrans(CXT))
@@ -184,3 +245,77 @@ fal = cxt %>% filter(SEASON=="fall") %>% select(TRAP_NUM,TransCXT)
 aovfal = aov(TransCXT~factor(TRAP_NUM),data=fal)
 snkfal = SNK.test(aovfal,"factor(TRAP_NUM)", console=FALSE)
 head(snkfal$groups,7)
+
+# Exploratory data analysis
+lmB = lm(TransCXT ~ factor(MO) +
+		            factor(YR) +
+					TOBS +
+					I(SLTMRSH/TOTAL) +
+					I(DKPND/TOTAL) +
+					I(RCRP/TOTAL) +
+					I(GRP/TOTAL) +
+					I(CIT/TOTAL) +
+					I(DAT/TOTAL) +
+					I(PST/TOTAL) +
+					I(FSH/TOTAL) +
+					TOTAL +
+					LAT +
+					LON,
+		 data=cxt)
+summary(lmB)
+require("car")
+print(vif(lmB))	# Calculates the variance inflation factors
+
+lmC=lm(TransCXT~factor(TRAP_NUM)+factor(MO)+factor(YR)+TOBS,data=cxt)
+summary(lmC)
+print(vif(lmC))
+
+# Notes on multicollinearity:
+#	TMAX conflicts with factor(MO) and TOBS
+#	factor(TRAP_NUM) conflicts with LAT, LON, and the habitat covariates
+#	including all the habitat types as raw covariates causes problems, best to leave out DESERT
+
+lmD=lm(I(CXT+1)~factor(TRAP_NUM)+factor(MO)+factor(YR)+TOBS,data=cxt)
+library("MASS")
+lambda_curve = boxcox(lmD)
+opt_power = lambda_curve$x[lambda_curve$y==max(lambda_curve$y)]
+opt_power
+
+# Notes on optimal transform:
+#	Box-Cox shows that the transform used in Reisen is near optimal
+
+dev.new()
+par(mfrow=c(2,2))
+#1. Residuals vs. predicted values
+yhat = fitted(lmC)
+lmC_resid = resid(lmC)
+plot(yhat,lmC_resid,xlab="Predicted Values",ylab="Residuals")
+#2. Histogram or box plot of residuals
+boxplot(lmC_resid)
+title("Residual Boxplot")
+#3. Q-Q plot (need car package)
+qqPlot(lmC)
+title("Model C")
+#6. Serial autocorrelations (need forecast package)
+library("forecast")
+dev.new()
+Acf(residuals(lmC))
+#7. Durbin-Watson test (need lmtest package)
+library("lmtest")
+dwtest(lmC)
+
+#PRESS statistic for both models (need plyr package and source the .r files)
+#model_fit_stats(lmC)
+
+# Use car package
+# Influential Observations
+# Cook's D plot
+# identify D values > 4/(n-k-1) 
+dev.new()
+cutoff <- 4/(nrow(cxt)-length(lmC$coefficients)-2) 
+plot(gmod_red, which=4, cook.levels=cutoff)
+influencePlot(lmC,
+			  id.method="noteworthy",
+			  id.n=4,
+			  main="Influence Plot",
+			  sub="Circle size is proportial to Cook's D")
