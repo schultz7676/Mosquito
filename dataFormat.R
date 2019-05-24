@@ -101,11 +101,6 @@ dat_ready <- merge(habitats,dat_ready,all=TRUE,by.x="TRAP_NUM",by.y="trap_num")
 colnames(dat_ready)[colnames(dat_ready)=="TRAP_NUM"] <- "trap_num"
 
 # Write to CSV using R####
-<<<<<<< HEAD
-write.csv(dat_ready, file = "D:\\Desktop\\dat_ready.csv",row.names=FALSE, na="")
-
-=======
 file_out_joe = "dat_ready.csv"
 file_out_jac = "D:\\Desktop\\dat_ready.csv"
 write.csv(dat_ready, file = file_out_jac,row.names=FALSE, na="")
->>>>>>> a228b68959fc0d388af40a43c22bff2d776aa92b
