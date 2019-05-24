@@ -38,6 +38,8 @@ cxt = cxt %>% inner_join(habitats,by="TRAP_NUM")
 # Add temperature data
 noaa = read_excel("NOAAsubset.xlsx")
 noaa = noaa %>% mutate(T2 = date_to_T(DATE))
+library("testit")
+assert(noaa$T %==% noaa$T2)
 noaaavg = noaa %>%
           select(T,TMAX,TOBS) %>%
 		  group_by(T) %>%
@@ -197,9 +199,9 @@ snkfal = SNK.test(aovfal,"factor(TRAP_NUM)", console=FALSE)
 head(snkfal$groups,7)
 
 # Exploratory data analysis
+require("car")
 lmB = lm(TransCXT ~ factor(MO) +
 		            factor(YR) +
-					TOBS +
 					I(SLTMRSH/TOTAL) +
 					I(DKPND/TOTAL) +
 					I(RCRP/TOTAL) +
@@ -213,10 +215,9 @@ lmB = lm(TransCXT ~ factor(MO) +
 					LON,
 		 data=cxt)
 summary(lmB)
-require("car")
 print(vif(lmB))	# Calculates the variance inflation factors
 
-lmC=lm(TransCXT~factor(TRAP_NUM)+factor(MO)+factor(YR)+TOBS,data=cxt)
+lmC=lm(TransCXT~factor(TRAP_NUM)+factor(MO)+factor(YR),data=cxt)
 summary(lmC)
 print(vif(lmC))
 
@@ -225,34 +226,43 @@ print(vif(lmC))
 #	factor(TRAP_NUM) conflicts with LAT, LON, and the habitat covariates
 #	including all the habitat types as raw covariates causes problems, best to leave out DESERT
 
-lmD=lm(I(CXT+1)~factor(TRAP_NUM)+factor(MO)+factor(YR)+TOBS,data=cxt)
+lmD=lm(I(CXT+1)~factor(TRAP_NUM)+factor(MO)+factor(YR),data=cxt)
 library("MASS")
+dev.new()
+hist(cxt$CXT,breaks=20,freq=FALSE,xlab="Mosquito Count",main="")
+dev.new()
 lambda_curve = boxcox(lmD)
 opt_power = lambda_curve$x[lambda_curve$y==max(lambda_curve$y)]
 opt_power
+dev.new()
+hist(cxt$TransCXT,breaks=20,freq=FALSE,main="",xlab="Transformed Mosquito Count")
 
 # Notes on optimal transform:
 #	Box-Cox shows that the transform used in Reisen is near optimal
 
 dev.new()
-par(mfrow=c(2,2))
+par(mfrow=c(1,2))
 #1. Residuals vs. predicted values
 yhat = fitted(lmC)
 lmC_resid = resid(lmC)
 plot(yhat,lmC_resid,xlab="Predicted Values",ylab="Residuals")
 #2. Histogram or box plot of residuals
-boxplot(lmC_resid)
-title("Residual Boxplot")
+boxplot(lmC_resid,ylab="Residuals",xlab="Distribution")
 #3. Q-Q plot (need car package)
+dev.new()
 qqPlot(lmC)
-title("Model C")
 #6. Serial autocorrelations (need forecast package)
 library("forecast")
 dev.new()
-Acf(residuals(lmC))
+Acf(residuals(lmC),main="",ylab="Residual Autocorrelation")
+cxt2 = cxt %>% arrange(TRAP_NUM,T)
+lmC_resort=lm(TransCXT~factor(TRAP_NUM)+factor(MO)+factor(YR),data=cxt2)
+dev.new()
+Acf(residuals(lmC_resort),main="",ylab="Residual Autocorrelation")
 #7. Durbin-Watson test (need lmtest package)
 library("lmtest")
 dwtest(lmC)
+dwtest(lmC_resort)
 
 #PRESS statistic for both models (need plyr package and source the .r files)
 #model_fit_stats(lmC)
@@ -263,9 +273,10 @@ dwtest(lmC)
 # identify D values > 4/(n-k-1) 
 dev.new()
 cutoff = 4/(nrow(cxt)-length(lmC$coefficients)-2) 
-plot(lmC_resid, which=4, cook.levels=cutoff)
+#plot(lmC_resid, which=4, cook.levels=cutoff)
+dev.new()
 influencePlot(lmC,
 			  id.method="noteworthy",
 			  id.n=4,
-			  main="Influence Plot",
 			  sub="Circle size is proportial to Cook's D")
+high_influence = c(31,95,107,290,351,411,613,841)
