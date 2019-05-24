@@ -10,17 +10,14 @@ expit = function(x) { return((exp(x))/(1+exp(x))) }
 logit = function(x) { return(log(x/(1-x))) }
 
 data=dat_ready__5_9_2019
-<<<<<<< HEAD
-View(data)
+#View(data)
+
 data=data[-28,] #eliminates the empty row
 #Subset
-#timespan of study: # of weeks to include in the dataset
-#First year: T in [1,14], Second year: T in [24:33]
-=======
-data = data[-28,]
->>>>>>> 37701953bb18cf3909195030fd58459392cbe4f4
 
 tspan <- 33
+#timespan of study: # of weeks to include in the dataset
+#First year: T in [1,14], Second year: T in [24:33]
 
 #counts
 n.it<-data[,paste(rep("y",tspan), c(1:tspan), sep="")]
@@ -31,6 +28,7 @@ T<-ncol(n.it)
 lon<-data[,"lon"]
 lat<-data[,"lat"]
 total<-data[,"TOTAL"]
+trap_num<-data[,"trap_num"]
 #how to deal with habitat..?
 
 #observation-level predictors
@@ -40,7 +38,9 @@ DATE<-data[,paste(rep("t",tspan),c(1:tspan),sep="")]
 DATE2<-DATE^2
 
 #model: Kery, Royle, and Schmid (2005)####
-X = cbind(lon,lat,total)
+X = cbind(lon,lat,total,trap_num)
+#X = cbind(lon,lat,total)
+
 
 p.date.lin = as.vector(t(DATE))
 tobs.lin = as.vector(t(as.matrix(temp.obs)))
@@ -59,47 +59,10 @@ DATE.4 = as.matrix(DATE.3)
 DATE.4[is.na(DATE.4)] = max(as.vector(DATE.3),na.rm=TRUE) 
 mode(DATE.4) = "integer"
 
-#Optimization
-#from toutorial: "original N-mixture model with the negative binomial prior and no covariates (ie, the null model) 
-#Note:had to use as.matrix(n.it) because it was reading n.it as a list
-<<<<<<< HEAD
-Method = "SANN"
-K.lim = 100
-start.vals = c(.5,0) 
-#Testing Likelihood
-nmix.mig(start.vals,ceiling(as.matrix(n.it)/100),X.const,Z.const,Date=DATE.3,K=K.lim)
-
-model.null = optim(start.vals, nmix.mig, method=Method, hessian=TRUE, n=as.matrix(n.it), X=X.const, Z=Z.const, migration="none", prior="poisson", Date=DATE.3, K=K.lim,control=list(trace=2,reltol=1e-2,ndeps=c(50,.05)))
-
-model.null$conv #should come back "0" if we found max
-=======
+#Closed model, binned responses ####
 Method = "BFGS"
 K.lim = 200
 start.vals = c(0,0)
-y = unmarkedFramePCount(ceiling(as.matrix(n.it)/100),
-						siteCovs=NULL,
-						obsCovs=NULL,
-						mapInfo=NULL)
-model.null = pcount(~1~1,
-					y,
-					K.lim,
-					mixture="P",
-					start.vals,
-					method=Method,
-					se=TRUE,
-					engine="C")
-
-summary(model.null)
->>>>>>> 37701953bb18cf3909195030fd58459392cbe4f4
-
-#Evaluate the stability
-ev.null = eigen(model.null@opt$hessian)$values
-cn.null = max(ev.null)/min(ev.null)
-cn.null #the condition number. Should not be negative or close to 0.
-
-
-#In fitting the N-mixture model with covariates for lambda and p, the MLEs from the 
-#null model are used as initial values.
 y = unmarkedFramePCount(ceiling(as.matrix(n.it)/100),
 						siteCovs=as.data.frame(X),
 						obsCovs=as.data.frame(Z),
@@ -108,7 +71,7 @@ model.closed = pcount(~1 ~1,
 					  y,
 					  K.lim,
 					  mixture="P",
-					  model.null@opt$par,
+					  start.vals,
 					  method=Method,
 					  se=TRUE,
 					  engine="C")
@@ -119,8 +82,11 @@ ev.closed = eigen(model.closed@opt$hessian)$values
 cn.closed = max(ev.closed)/min(ev.closed)
 cn.closed #check condition number
 
+(lam <- 100*exp(model.closed@opt$par[1]))
+(p <- plogis(coef(model.closed, type="det")))
+c(lam,p)
+#Open intercept Model, binned responses + closure test #### 
 
-#Open Model #### This takes a long time to run, but it does seem to converge.
 y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
 					 siteCovs=as.data.frame(X),
 					 obsCovs=as.data.frame(Z),
@@ -135,16 +101,19 @@ model.open = pcountOpen(~1,~1,~1,~1,
 						K.lim,
 						dynamics="constant",
 						fix="none",
-						starts=c(model.closed@opt$par[1],0,0,model.closed@opt$par[2]),
+						starts=c(model.closed@opt$par[1],log(.4),logit(.4),model.closed@opt$par[2]),
 						method=Method,
 						se=TRUE,
 						immigration=FALSE,
 						iotaformula=~1)
 toc() #714.39 sec on Jacob's machine (12 mins)
 
+#note: starting at log(.4), logit(.4) instead of 0, 0 
+#saved one optim interation 59->58. Not a huge improvement
+
 summary(model.open)
 
-lam <- exp(coef(model.open, type="lambda"))
+lam <- 100*exp(coef(model.open, type="lambda")) # *100 because of binned responses
 gam <- exp(coef(model.open, type="gamma"))
 om <- plogis(coef(model.open, type="omega"))
 p <- plogis(coef(model.open, type="det"))
@@ -154,41 +123,84 @@ ev.open = eigen(model.open@opt$hessian)$values
 cn.open = max(ev.open)/min(ev.open)
 cn.open #check condition number: this condition number is much larger than the others
 
+#closure test
+#method 1: extract log-likelihoods from fitted models
+-2*(model.open@opt$value-model.closed@opt$value)
+model.open2@opt$value
+#method 2: use unmarked built in LRT
+LRT(model.open,model.closed)
+#Result in test stat of 2765.518 in both cases
 
-#Closure Test
-if(FALSE){
-t.stat= 2*(model.closed$val - model.open$val)
-obs.inf = -1*model.open$hess
-obs.inf.nn = obs.inf[1:5,1:5]
-obs.inf.np = obs.inf[1:5,6:7]
-obs.inf.pn = obs.inf[6:7,1:5]
-obs.inf.pp = obs.inf[6:7,6:7]
-I.tilda = obs.inf.pp - obs.inf.pn%*%solve(obs.inf.nn)%*%obs.inf.np
-prop = acos(I.tilda[1,2]/(sqrt(I.tilda[1,1]*I.tilda[2,2])))/(2*pi)
-prop.0 = 0.5 - prop
-prop.1 = 0.5
-prop.2 = prop
-p.value = prop.0*(0) + prop.1*(1-pchisq(t.stat,1)) + prop.2*(1-pchisq(t.stat,2))
-p.value
+#Open Model covariates, binned responses ####
 
-ests.closed = ests(model.closed$par,model.closed$hess, migration="none", n=n.it, X=X.lam, Z=Z.p, T=3, prior="NB")
-ests.closed
+y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
+                     siteCovs=as.data.frame(X),
+                     obsCovs=as.data.frame(Z),
+                     yearlySiteCovs=NULL,
+                     mapInfo=NULL,
+                     numPrimary=33,
+                     primaryPeriod=DATE.4)
+tic()
+model.open.siteLam = pcountOpen(~as.factor(trap_num),~1,~1,~1,
+                        y,
+                        mixture="P",
+                        K.lim,
+                        dynamics="constant",
+                        fix="none",
+                        starts=c(model.closed@opt$par[1],rep(log(.4),63),logit(.4),model.closed@opt$par[2]),
+                        method=Method,
+                        se=TRUE,
+                        immigration=FALSE,
+                        iotaformula=~1)
+toc()
+summary(model.open.siteLam)
 
-ests.open = ests(model.open$par, model.open$hess, migration="constant", n=n.it, X=X.lam, Z=Z.p, T=3, prior="NB")
-ests.open
+lam <- 100*exp(coef(model.open.siteLam, type="lambda"))
+gam <- exp(coef(model.open.siteLam, type="gamma"))
+om <- plogis(coef(model.open.siteLam, type="omega"))
+p <- plogis(coef(model.open.siteLam, type="det"))
+c(lam,gam,om,p) #back transformed fitted values
 
-gamma = ests.open[9]
-gamma
-omega = ests.open[10]
-omega
+ev.open = eigen(model.open.siteLam@opt$hessian)$values
+cn.open = max(ev.open)/min(ev.open)
+cn.open #check condition number: this condition number is much larger than the others
+
+#Open intercept model without binning responses####
+K.lim.raw = max(as.matrix(n.it),na.rm=TRUE)+1
+
+y = unmarkedFramePCO(as.matrix(n.it),
+                     siteCovs=as.data.frame(X),
+                     obsCovs=as.data.frame(Z),
+                     yearlySiteCovs=NULL,
+                     mapInfo=NULL,
+                     numPrimary=33,
+                     primaryPeriod=DATE.4)
+
+tic()
+model.open.raw = pcountOpen(~1,~1,~1,~1,
+                        y,
+                        mixture="P",
+                        K.lim2,
+                        dynamics="constant",
+                        fix="none",
+                        starts=c(model.closed@opt$par[1],log(.4),logit(.4),model.closed@opt$par[2]),
+                        method=Method,
+                        se=TRUE,
+                        immigration=FALSE,
+                        iotaformula=~1)
+toc()
+
+summary(model.openraw)
 
 
-se = sqrt(diag(solve(model.open$hess)))
-se.gamma = se[6]
-se.omega = se[7]
+summary(model.open.raw)
 
-gamma.ci = exp( c( model.open$par[6]- 1.96*se.gamma , model.open$par[6] +1.96*se.gamma))
-gamma.ci
-omega.ci = expit( c( model.open$par[7] - 1.96*se.omega, model.open$par[7] + 1.96*se.omega))
-omega.ci
-}
+lam <- 100*exp(coef(model.open.raw, type="lambda"))
+gam <- exp(coef(model.open.raw, type="gamma"))
+om <- plogis(coef(model.open.raw, type="omega"))
+p <- plogis(coef(model.open.raw, type="det"))
+c(lam,gam,om,p) #back transformed fitted values
+
+ev.open = eigen(model.open.raw@opt$hessian)$values
+cn.open = max(ev.open)/min(ev.open)
+cn.open #check condition number: this condition number is much larger than the others
