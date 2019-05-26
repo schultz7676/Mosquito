@@ -3,13 +3,12 @@ library(readr)
 library("unmarked")
 library("tictoc") #So we can see our code's run time
 
-dat_ready__5_9_2019 <- read_csv("./dat_ready__5_9_2019.csv")
-
+dat_ready__5_24_2019 <- read_csv("./dat_ready__5_24_2019.csv")
 #Need to define these functions first
 expit = function(x) { return((exp(x))/(1+exp(x))) }
 logit = function(x) { return(log(x/(1-x))) }
 
-data=dat_ready__5_9_2019
+data=dat_ready__5_24_2019
 #View(data)
 
 data=data[-28,] #eliminates the empty row
@@ -24,32 +23,64 @@ n.it<-data[,paste(rep("y",tspan), c(1:tspan), sep="")]
 R<-nrow(n.it)
 T<-ncol(n.it)
 
-##Site Level covariates
+# Site Level covariates####
 lon<-data[,"lon"]
 lat<-data[,"lat"]
 total<-data[,"TOTAL"]
+desert<-data[,"DESERT"]
+sltmrsh<-data[,"SLTMRSH"]
+dkpnd<-data[,"DKPND"]
+rcrp<-data[,"RCRP"]
+grp<-data[,"GRP"]
+cit<-data[,"CIT"]
+datefarm<-data[,"DAT"]
+pst<-data[,"PST"]
+fsh<-data[,"FSH"]
 trap_num<-data[,"trap_num"]
-#how to deal with habitat..?
+d.to.sea<-data[,"d.to.sea"]
 
-#observation-level predictors
+X = cbind(lon,
+          lat,
+          total,
+          desert,
+          sltmrsh,
+          dkpnd,
+          rcrp,
+          grp,
+          cit,
+          datefarm,
+          pst,
+          fsh,
+          trap_num,
+          d.to.sea)
+
+#observation-level predictors####
 temp.obs<-data[,paste(rep("temp.obs",tspan),c(1:tspan),sep="")]
 temp.max<-data[,paste(rep("temp.max",tspan),c(1:tspan),sep="")]
+mo<-data[,paste(rep("mo",tspan),c(1:tspan),sep="")]
+wk<-data[,paste(rep("wk",tspan),c(1:tspan),sep="")]
+yr<-data[,paste(rep("yr",tspan),c(1:tspan),sep="")]
+season<-data[,paste(rep("season",tspan),c(1:tspan),sep="")]
+
+
 DATE<-data[,paste(rep("t",tspan),c(1:tspan),sep="")]
 DATE2<-DATE^2
-
-#model: Kery, Royle, and Schmid (2005)####
-X = cbind(lon,lat,total,trap_num)
-#X = cbind(lon,lat,total)
-
-
-p.date.lin = as.vector(t(DATE))
-tobs.lin = as.vector(t(as.matrix(temp.obs)))
-Z = cbind(tobs.lin,p.date.lin)
-
-#Note: we got to skip a lot of code here because our data
-#is not centered and standardized
-
 DATE.2 = DATE
+
+p.date = as.vector(t(DATE))
+temp.obs = as.vector(t(as.matrix(temp.obs)))
+temp.max = as.vector(t(as.matrix(temp.max)))
+mo = as.vector(t(as.matrix(mo)))
+wk = as.vector(t(as.matrix(wk)))
+yr = as.vector(t(as.matrix(yr)))
+season= as.vector(t(as.matrix(season)))
+Z = cbind(p.date,
+          temp.obs,
+          temp.max,
+          mo,
+          wk,
+          yr,
+          season)
 
 #Now set the assumed primary period length. Our data is only sampled
 #every two weeks, so this should probably be small
@@ -59,9 +90,10 @@ DATE.4 = as.matrix(DATE.3)
 DATE.4[is.na(DATE.4)] = max(as.vector(DATE.3),na.rm=TRUE) 
 mode(DATE.4) = "integer"
 
-#Closed model, binned responses ####
 Method = "BFGS"
-K.lim = 200
+K.lim = max(ceiling(as.matrix(n.it)/100),na.rm=TRUE)+1
+#Closed model, binned responses ####
+
 start.vals = c(0,0)
 y = unmarkedFramePCount(ceiling(as.matrix(n.it)/100),
 						siteCovs=as.data.frame(X),
@@ -86,7 +118,7 @@ cn.closed #check condition number
 (p <- plogis(coef(model.closed, type="det")))
 c(lam,p)
 #Open intercept Model, binned responses + closure test #### 
-
+K.lim = max(ceiling(as.matrix(n.it)/100),na.rm=TRUE)+1
 y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
 					 siteCovs=as.data.frame(X),
 					 obsCovs=as.data.frame(Z),
@@ -113,10 +145,10 @@ toc() #714.39 sec on Jacob's machine (12 mins)
 
 summary(model.open)
 
-lam <- 100*exp(coef(model.open, type="lambda")) # *100 because of binned responses
-gam <- exp(coef(model.open, type="gamma"))
-om <- plogis(coef(model.open, type="omega"))
-p <- plogis(coef(model.open, type="det"))
+lam <- 100*backTransform(model.open,type="lambda")# *100 because of binned responses
+gam <- backTransform(model.open,type="gamma")
+om <- backTransform(model.open,type="omega")
+p<- backTransform(model.open,type="det")
 c(lam,gam,om,p) #back transformed fitted values
 
 ev.open = eigen(model.open@opt$hessian)$values
@@ -124,15 +156,13 @@ cn.open = max(ev.open)/min(ev.open)
 cn.open #check condition number: this condition number is much larger than the others
 
 #closure test
-#method 1: extract log-likelihoods from fitted models
--2*(model.open@opt$value-model.closed@opt$value)
-model.open2@opt$value
-#method 2: use unmarked built in LRT
+
 LRT(model.open,model.closed)
-#Result in test stat of 2765.518 in both cases
+#Result in test stat of 2765.518
 
 #Open Model covariates, binned responses ####
 
+K.lim = max(ceiling(as.matrix(n.it)/100),na.rm=TRUE)+1
 y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
                      siteCovs=as.data.frame(X),
                      obsCovs=as.data.frame(Z),
@@ -140,28 +170,29 @@ y = unmarkedFramePCO(ceiling(as.matrix(n.it)/100),
                      mapInfo=NULL,
                      numPrimary=33,
                      primaryPeriod=DATE.4)
+
 tic()
-model.open.siteLam = pcountOpen(~as.factor(trap_num),~1,~1,~1,
+model.open.covariate = pcountOpen(~d.to.sea,~d.to.sea,~1,~1,
                         y,
                         mixture="P",
                         K.lim,
                         dynamics="constant",
                         fix="none",
-                        starts=c(model.closed@opt$par[1],rep(log(.4),63),logit(.4),model.closed@opt$par[2]),
+                        starts=c(model.closed@opt$par[1],rep(0,4),model.closed@opt$par[2]),
                         method=Method,
                         se=TRUE,
                         immigration=FALSE,
                         iotaformula=~1)
 toc()
-summary(model.open.siteLam)
+summary(model.open.covariate)
 
-lam <- 100*exp(coef(model.open.siteLam, type="lambda"))
-gam <- exp(coef(model.open.siteLam, type="gamma"))
-om <- plogis(coef(model.open.siteLam, type="omega"))
-p <- plogis(coef(model.open.siteLam, type="det"))
+lam <- 100*exp(coef(model.open.covariate, type="lambda"))
+gam <- exp(coef(model.open.covariate, type="gamma"))
+om <- plogis(coef(model.open.covariate, type="omega"))
+p <- plogis(coef(model.open.covariate, type="det"))
 c(lam,gam,om,p) #back transformed fitted values
 
-ev.open = eigen(model.open.siteLam@opt$hessian)$values
+ev.open = eigen(model.open.covariate@opt$hessian)$values
 cn.open = max(ev.open)/min(ev.open)
 cn.open #check condition number: this condition number is much larger than the others
 
@@ -180,7 +211,7 @@ tic()
 model.open.raw = pcountOpen(~1,~1,~1,~1,
                         y,
                         mixture="P",
-                        K.lim2,
+                        K.lim.raw,
                         dynamics="constant",
                         fix="none",
                         starts=c(model.closed@opt$par[1],log(.4),logit(.4),model.closed@opt$par[2]),
