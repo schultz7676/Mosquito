@@ -126,9 +126,7 @@ for (i in c(1:64)){
 }
 dat_ready <- cbind(dat_ready,d.to.sea)
 # Write to CSV using R####
-
 file_out_joe = "dat_ready.csv"
 file_out_jac = "D:\\Desktop\\dat_ready.csv"
 write.csv(dat_ready, file = file_out_jac,row.names=FALSE, na="")
 
-dim(dat_ready)
