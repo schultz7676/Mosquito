@@ -22,15 +22,15 @@ T<-ncol(n.it)
 lon<-data[,"lon"]
 lat<-data[,"lat"]
 total<-data[,"TOTAL"]
-desert<-data[,"DESERT"]
-sltmrsh<-data[,"SLTMRSH"]
-dkpnd<-data[,"DKPND"]
-rcrp<-data[,"RCRP"]
-grp<-data[,"GRP"]
-cit<-data[,"CIT"]
-datefarm<-data[,"DAT"]
-pst<-data[,"PST"]
-fsh<-data[,"FSH"]
+desert<-data[,"DESERT"]/total
+sltmrsh<-data[,"SLTMRSH"]/total
+dkpnd<-data[,"DKPND"]/total
+rcrp<-data[,"RCRP"]/total
+grp<-data[,"GRP"]/total
+cit<-data[,"CIT"]/total
+datefarm<-data[,"DAT"]/total
+pst<-data[,"PST"]/total
+fsh<-data[,"FSH"]/total
 trap_num<-data[,"trap_num"]
 d.to.sea<-data[,"d.to.sea"]
 
